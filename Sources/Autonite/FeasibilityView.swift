@@ -1,3 +1,4 @@
+#if os(iOS)
 import AutoniteCore
 import SwiftUI
 
@@ -193,3 +194,4 @@ private struct UtteranceRow: View {
         }
     }
 }
+#endif

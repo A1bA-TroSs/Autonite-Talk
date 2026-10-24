@@ -1,3 +1,4 @@
+#if os(iOS)
 import AutoniteCore
 import Foundation
 import Observation
@@ -181,3 +182,4 @@ final class FeasibilityModel {
         }
     }
 }
+#endif

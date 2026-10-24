@@ -1,3 +1,4 @@
+#if os(iOS)
 import CoreHaptics
 import UIKit
 
@@ -33,3 +34,4 @@ final class HapticProbe {
         }
     }
 }
+#endif

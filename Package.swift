@@ -3,7 +3,8 @@ import PackageDescription
 
 let package = Package(
     name: "Autonite",
-    platforms: [.iOS("26.0"), .macOS("26.0")],
+    // macOS is listed only so `swift test` can run AutoniteCore on a Mac; the app target is iOS-only.
+    platforms: [.iOS("26.0"), .macOS(.v15)],
     products: [
         // xtool builds the app from this library product (see xtool.yml).
         .library(name: "Autonite", targets: ["Autonite"]),

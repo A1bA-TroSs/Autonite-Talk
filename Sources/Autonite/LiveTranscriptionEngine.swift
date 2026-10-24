@@ -1,3 +1,4 @@
+#if os(iOS)
 import AVFoundation
 import AutoniteCore
 import Foundation
@@ -239,3 +240,4 @@ private final class BufferConverter: @unchecked Sendable {
 private final class SuppliedFlag: @unchecked Sendable {
     var value = false
 }
+#endif

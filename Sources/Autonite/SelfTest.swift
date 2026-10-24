@@ -1,3 +1,4 @@
+#if os(iOS)
 import AutoniteCore
 import Foundation
 
@@ -38,3 +39,4 @@ enum SelfTest {
         exit(1)
     }
 }
+#endif
