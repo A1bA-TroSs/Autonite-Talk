@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>Autunite</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Autunite records the conversation you start, with the other participants' knowledge, so it can transcribe your own wording. Pass 0 keeps no audio after the session ends.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Autunite transcribes the conversation on this iPhone to check your wording against the intention you chose.</string>
+    <key>UIRequiresFullScreen</key>
+    <true/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+</dict>
+</plist>
