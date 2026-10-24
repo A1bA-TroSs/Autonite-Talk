@@ -7,6 +7,9 @@ struct AutoniteApp: App {
     var body: some Scene {
         WindowGroup {
             FeasibilityView(model: model)
+                .task {
+                    if SelfTest.isRequested { await SelfTest.run(model) }
+                }
         }
     }
 }

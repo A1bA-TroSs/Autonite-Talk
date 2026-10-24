@@ -12,7 +12,7 @@ Current pass: **Pass 0, feasibility**. See `docs/PASS0_FEASIBILITY.md`. Don't st
 ## Layout
 
 - `Sources/AutoniteCore`: Foundation-only logic (attribution, gate, latency, report). Test with `swift test` on a Mac.
-- `Sources/Autonite`: the SwiftUI app (Speech, AVFoundation, Core Haptics). Build with `xtool dev` on a Mac with Xcode 26+ and a USB-connected iPhone.
+- `Sources/Autonite`: the SwiftUI app (Speech, AVFoundation, Core Haptics). Build with xtool (`xtool dev build`, `xtool dev`), never an `.xcodeproj`. On a Mac, xtool needs Xcode installed for the SDK only. Validate with the `ios-xtool` skill's `xtkit.py check` and `simtest` first.
 
 ## Rules
 

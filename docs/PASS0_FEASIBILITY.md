@@ -27,17 +27,21 @@ A 26% diarization error rate is far too high for a cue that must never fire on t
 
 ## Build and run
 
-You need a Mac with Xcode 26 or later (for the iOS 26 SDK) and an iPhone running iOS 26 or later. Plug the iPhone in over USB.
+The build uses xtool, not the Xcode app or an `.xcodeproj`. On a Mac, xtool still needs Xcode installed for the iOS 26 SDK and the Simulator, but Xcode never has to be opened. You also need an iPhone running iOS 26 or later, connected over USB.
 
 ```bash
-swift test                 # AutoniteCore logic, runs on the Mac
+X=~/projects/agent-skills/ios-xtool/scripts/xtkit.py
 brew install xtool-org/tap/xtool
-xtool setup
-xtool auth                 # Danny enters his own Apple ID; agents never do
-xtool dev                  # build, sign, install and launch on the iPhone
+python3 $X doctor                              # what this Mac can do
+python3 $X check . --team free                 # xtool.yml and Info.plist checks (0 errors as of this PR)
+swift test                                     # AutoniteCore logic
+xtool dev build                                # -> xtool/Autonite.app
+SIMCTL_CHILD_AUTONITE_SELFTEST=1 python3 $X simtest . --sentinel "autonite selftest succeeded"
+xtool auth login                               # Danny only: his own Apple ID
+xtool dev                                      # build, sign, install and launch on the iPhone
 ```
 
-Speech assets don't work in the Simulator, so use a real device.
+The Simulator self-test only shows that the app launches and its wiring holds. Speech assets don't load in the Simulator, so transcription, attribution and haptics need the real device.
 
 ## Protocol
 
