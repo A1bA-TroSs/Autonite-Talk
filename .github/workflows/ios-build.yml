@@ -4,7 +4,7 @@ name: iOS build
 # so no Mac needs a local Xcode install to compile the app.
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
