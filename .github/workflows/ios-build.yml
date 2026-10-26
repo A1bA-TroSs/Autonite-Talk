@@ -1,0 +1,57 @@
+name: iOS build
+
+# Builds and tests on GitHub's macOS runners, which come with Xcode,
+# so no Mac needs a local Xcode install to compile the app.
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          xcrun -sdk iphoneos --show-sdk-version
+
+      - name: Install xtool
+        run: brew install xtool-org/tap/xtool && xtool --version
+
+      - name: Core tests
+        run: swift test
+
+      - name: Build for device (unsigned)
+        run: xtool dev build
+
+      - name: Build for Simulator
+        run: |
+          xtool dev build --triple arm64-apple-ios-simulator
+          mv xtool/Autonite.app "$RUNNER_TEMP/Autonite-sim.app"
+
+      - name: Simulator self-test
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          ios = sorted(k for k in devices if "iOS" in k)
+          phones = [d for d in devices[ios[-1]] if d["name"].startswith("iPhone")]
+          print(phones[0]["udid"])')
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl install "$udid" "$RUNNER_TEMP/Autonite-sim.app"
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
+          SIMCTL_CHILD_AUTONITE_SELFTEST=1 timeout 120 xcrun simctl launch --console "$udid" "$bundle_id" | tee selftest.log || true
+          grep -qx "autonite selftest succeeded" selftest.log
+
+      - name: Upload device build
+        uses: actions/upload-artifact@v4
+        with:
+          name: Autonite-unsigned-app
+          path: xtool/Autonite.app
