@@ -27,8 +27,10 @@ jobs:
       - name: Core tests
         run: swift test
 
-      - name: Build for device (unsigned)
-        run: xtool dev build
+      - name: Build for device (unsigned .ipa)
+        run: |
+          xtool dev build --ipa
+          mv xtool/Autonite.ipa "$RUNNER_TEMP/Autonite.ipa"
 
       - name: Build for Simulator
         run: |
@@ -53,5 +55,5 @@ jobs:
       - name: Upload device build
         uses: actions/upload-artifact@v4
         with:
-          name: Autonite-unsigned-app
-          path: xtool/Autonite.app
+          name: Autonite-unsigned-ipa
+          path: ${{ runner.temp }}/Autonite.ipa
