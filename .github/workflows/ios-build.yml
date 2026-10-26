@@ -47,7 +47,7 @@ jobs:
           xcrun simctl bootstatus "$udid" -b
           xcrun simctl install "$udid" "$RUNNER_TEMP/Autonite-sim.app"
           bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
-          SIMCTL_CHILD_AUTONITE_SELFTEST=1 timeout 120 xcrun simctl launch --console "$udid" "$bundle_id" | tee selftest.log || true
+          SIMCTL_CHILD_AUTONITE_SELFTEST=1 perl -e 'alarm 120; exec @ARGV' xcrun simctl launch --console "$udid" "$bundle_id" | tee selftest.log || true
           grep -qx "autonite selftest succeeded" selftest.log
 
       - name: Upload device build
