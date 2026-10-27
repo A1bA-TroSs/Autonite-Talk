@@ -53,7 +53,7 @@ Run each step in English, then again in Korean. Use two people at a table, with 
 4. **Haptics.** Run at least 3 trials per placement, both while recording and while idle.
 5. **Interruption.** During a session, call the phone or trigger Siri, and note what the strip shows.
 6. **Mixed language.** Optionally, try one English/Korean code-switching passage in each mode. Note it, but don't treat it as a gate.
-7. **Export.** Export the JSON and commit it as `docs/evidence/<date>-<device>.json`.
+7. **Export.** Export the JSON. The repo is public, so commit it only after `python3 scripts/redact_report.py <exported.json> docs/evidence/<date>-<device>.json` has blanked every utterance's text and the notes. The full JSON stays on the phone (decided by Danny, 2026-10-27).
 
 ## Decision gate before Pass 1
 
