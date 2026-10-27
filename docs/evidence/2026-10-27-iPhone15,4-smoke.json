@@ -1,0 +1,89 @@
+{
+  "deviceModel" : "iPhone15,4",
+  "hapticTrials" : [
+    {
+      "at" : "2026-10-27T14:05:26Z",
+      "duringRecording" : false,
+      "felt" : true,
+      "placement" : "table, face up"
+    },
+    {
+      "at" : "2026-10-27T14:05:26Z",
+      "duringRecording" : false,
+      "felt" : true,
+      "placement" : "table, face up"
+    },
+    {
+      "at" : "2026-10-27T14:05:28Z",
+      "duringRecording" : false,
+      "felt" : true,
+      "placement" : "table, face up"
+    }
+  ],
+  "hapticsSupported" : true,
+  "locales" : [
+    {
+      "checkedAt" : "2026-10-27T14:05:09Z",
+      "installedBeforeRun" : false,
+      "language" : "english",
+      "resolvedIdentifier" : "en-US",
+      "supported" : true
+    },
+    {
+      "checkedAt" : "2026-10-27T14:05:09Z",
+      "installedBeforeRun" : true,
+      "language" : "korean",
+      "resolvedIdentifier" : "ko-KR",
+      "supported" : true
+    }
+  ],
+  "notes" : "",
+  "osVersion" : "26.7.2",
+  "sessions" : [
+    {
+      "audioSessionMode" : "AVAudioSessionModeMeasurement",
+      "duration" : 4.537495017051697,
+      "failures" : [
+
+      ],
+      "interruptions" : 0,
+      "language" : "english",
+      "startedAt" : "2026-10-27T14:05:30Z",
+      "utterances" : [
+        {
+          "end" : 3.96,
+          "id" : "8527E494-1E1B-41DE-940F-912C6512AC30",
+          "latency" : 0.5464890384674073,
+          "meanLevelDB" : -60.2065466832843,
+          "predicted" : "unknown",
+          "predictionConfidence" : 0,
+          "start" : 0.72,
+          "text" : "Oh, it was here? It was here?"
+        }
+      ]
+    },
+    {
+      "audioSessionMode" : "AVAudioSessionModeMeasurement",
+      "duration" : 8.396329998970032,
+      "failures" : [
+
+      ],
+      "interruptions" : 0,
+      "language" : "korean",
+      "startedAt" : "2026-10-27T14:05:53Z",
+      "utterances" : [
+        {
+          "end" : 7.14,
+          "id" : "BD5A2FBF-D5EA-4E31-880B-AE90776750C2",
+          "latency" : 0.8284890508651737,
+          "meanLevelDB" : -58.633012018763864,
+          "predicted" : "unknown",
+          "predictionConfidence" : 0,
+          "start" : 0,
+          "text" : "아 여보세요 안녕하세요. 이게 제 이름입니다. 잘 기억해 주세요."
+        }
+      ]
+    }
+  ],
+  "transcriberAvailable" : true
+}
