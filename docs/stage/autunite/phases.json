@@ -1,0 +1,180 @@
+{
+  "permission_mode": "acceptEdits",
+  "review_effort": "high",
+  "preconditions": [
+    {
+      "what": "Xcode.app installed and selected",
+      "check": "test -d \"$(xcode-select -p)/Platforms/iPhoneOS.platform\" && xcode-select -p | grep -qE '/Xcode\\.app/Contents/Developer$'"
+    },
+    {
+      "what": "Pass 0 decision gate recorded as go",
+      "check": "test -f docs/evidence/PASS0_DECISION.md && grep -rqE '^decision: go$' docs/evidence/PASS0_DECISION.md"
+    },
+    {
+      "what": "xtool installed",
+      "check": "command -v xtool >/dev/null"
+    }
+  ],
+  "phases": [
+    {
+      "id": "P1",
+      "goal": "Implement the exact bilingual enrollment scripts and consent-gated state machine for AC1 and AC2.",
+      "constraints": [
+        "Use the eight Korean and eight English sentences in the approved proposal without rewriting them.",
+        "Require biometric consent before placement, eight sentences, 20–30 seconds of free speech, random-phrase check, baseline and done.",
+        "A failed check offers two additional sentences; no path reaches done without consent."
+      ],
+      "check": "grep -rqE 'func enrollmentScriptsHaveRequiredRegisterSplit' Tests/AutoniteCoreTests && grep -rqE 'func enrollmentFlowRequiresConsentAndRecovery' Tests/AutoniteCoreTests && swift test --filter 'enrollmentScriptsHaveRequiredRegisterSplit|enrollmentFlowRequiresConsentAndRecovery'",
+      "effort": "high",
+      "max_retries": 2,
+      "timeout_min": 60,
+      "handoff": "Tested scripts and enrollment transitions are available to profile storage and onboarding.",
+      "builder": "claude",
+      "reviewer": "codex"
+    },
+    {
+      "id": "P2",
+      "goal": "Persist a protected voice profile across relaunch, restore it into the diarizer without re-enrollment, and delete it in one call for AC3.",
+      "constraints": [
+        "Prefer stored embeddings; if FluidAudio cannot restore from embeddings, store the required enrollment audio on the phone under the same biometric consent and record the fallback in progress.md.",
+        "Apply complete file protection to every persisted profile file, including fallback audio.",
+        "Test a fresh store instance reading the profile and a diarizer adapter accepting it; connect that adapter to the iOS diarizer.",
+        "Never send audio, text or voiceprint off the phone."
+      ],
+      "check": "grep -rqE 'func voiceProfileStoreSurvivesRelaunchAndDeletes' Tests/AutoniteCoreTests && grep -rqE 'func diarizerAdapterAcceptsStoredProfile' Tests/AutoniteCoreTests && swift test --filter 'voiceProfileStoreSurvivesRelaunchAndDeletes|diarizerAdapterAcceptsStoredProfile' && xtool dev build",
+      "effort": "xhigh",
+      "max_retries": 2,
+      "timeout_min": 90,
+      "handoff": "The protected profile restores user attribution after relaunch; its actual storage format is documented.",
+      "builder": "claude",
+      "reviewer": "codex"
+    },
+    {
+      "id": "P3",
+      "goal": "Read Korean register against the session setting using at least 30 labelled phrases for AC4.",
+      "constraints": [
+        "Cover 하십시오체, 해요체, 반말 and mixed endings.",
+        "Return aligned, check or unknown; abstain when evidence is insufficient.",
+        "Keep rules and fixtures on the phone."
+      ],
+      "check": "grep -rqE 'func koreanRegisterThirtyPhraseFixture' Tests/AutoniteCoreTests && swift test --filter 'koreanRegisterThirtyPhraseFixture'",
+      "effort": "xhigh",
+      "max_retries": 2,
+      "timeout_min": 90,
+      "handoff": "The Korean register reader has a passing 30-phrase fixture and a stable result contract.",
+      "builder": "claude",
+      "reviewer": "codex"
+    },
+    {
+      "id": "P4",
+      "goal": "Add English formality and Korean/English intention-sensitive word-choice readings for AC5 and AC6.",
+      "constraints": [
+        "Test English formality on at least 20 labelled phrases.",
+        "A phrase flagged under gentle must not be flagged when blunt wording is confirmed as acceptable.",
+        "Use an on-device lexicon whose licence permits open-source redistribution."
+      ],
+      "check": "grep -rqE 'func englishRegisterTwentyPhraseFixture' Tests/AutoniteCoreTests && grep -rqE 'func wordChoiceRespectsBluntIntention' Tests/AutoniteCoreTests && swift test --filter 'englishRegisterTwentyPhraseFixture|wordChoiceRespectsBluntIntention'",
+      "effort": "high",
+      "max_retries": 2,
+      "timeout_min": 75,
+      "handoff": "Both shipped reading categories work in Korean and English through local interfaces.",
+      "builder": "claude",
+      "reviewer": "codex"
+    },
+    {
+      "id": "P5",
+      "goal": "Implement confirmed per-category intention settings, weighting and unmeasured slots for AC7, AC9 and the logic of AC12.",
+      "constraints": [
+        "Keep free-text intention separately from confirmed register and word-choice settings.",
+        "Presets fill proposed settings but do not affect readers until the user confirms them.",
+        "A confirmed intended mode never produces a mismatch in its category; document the weighting table in code.",
+        "Sarcasm, tone/manner and sharp/stiff always return notMeasured."
+      ],
+      "check": "grep -rqE 'func intentionWeightingTableSuppressesChosenModes' Tests/AutoniteCoreTests && grep -rqE 'func confirmedCategorySettingsDriveReaders' Tests/AutoniteCoreTests && grep -rqE 'func unconfirmedPresetDoesNotChangeReadings' Tests/AutoniteCoreTests && grep -rqE 'func unmeasuredCategoriesAlwaysAbstain' Tests/AutoniteCoreTests && swift test --filter 'intentionWeightingTableSuppressesChosenModes|confirmedCategorySettingsDriveReaders|unconfirmedPresetDoesNotChangeReadings|unmeasuredCategoriesAlwaysAbstain'",
+      "effort": "high",
+      "max_retries": 2,
+      "timeout_min": 75,
+      "handoff": "Setup state has a tested confirmation boundary, and readers accept only confirmed category settings.",
+      "builder": "claude",
+      "reviewer": "codex"
+    },
+    {
+      "id": "P6",
+      "goal": "Connect completed phrases to the readers through an own-speech gate for AC8.",
+      "constraints": [
+        "Produce no reading or haptic for other, unknown, confidence below 0.6 or overlapping speech.",
+        "Apply attribution before analysis and before cue delivery if attribution changes.",
+        "Uncertain or unfinished phrases stay quiet; preserve the Pass 0 evidence path."
+      ],
+      "check": "grep -rqE 'func readingPipelineRejectsOtherUnknownOverlapAndLowConfidence' Tests/AutoniteCoreTests && swift test --filter 'readingPipelineRejectsOtherUnknownOverlapAndLowConfidence'",
+      "effort": "xhigh",
+      "max_retries": 2,
+      "timeout_min": 90,
+      "handoff": "The live pipeline emits readings only for completed, confidently attributed user phrases.",
+      "builder": "claude",
+      "reviewer": "codex"
+    },
+    {
+      "id": "P7",
+      "goal": "Build enrollment and session setup UI with confirmed category settings and bilingual copy for AC11 and the UI of AC12.",
+      "constraints": [
+        "Use the P1 flow and P2 store; keep biometric consent separate from recording consent.",
+        "Show and store free-text intention, but never parse it into a category setting without confirmation.",
+        "Offer register and word-choice controls plus presets; disclose whether the actual profile format retains enrollment audio.",
+        "Localize every new user-facing key in Korean and English; use warm, conditional copy without asserting the other person's feelings.",
+        "Follow the settled DESIGN.md scheme."
+      ],
+      "check": "grep -rqE 'func pass1CopyIsBilingualAndAvoidsForbiddenClaims' Tests/AutoniteCoreTests && grep -rqE 'func enrollmentOnboardingRequiresConsent' Tests/AutoniteCoreTests && grep -rqE 'func sessionSetupConfirmsCategorySettings' Tests/AutoniteCoreTests && swift test --filter 'pass1CopyIsBilingualAndAvoidsForbiddenClaims|enrollmentOnboardingRequiresConsent|sessionSetupConfirmsCategorySettings' && xtool dev build",
+      "effort": "high",
+      "max_retries": 2,
+      "timeout_min": 75,
+      "handoff": "Compiled onboarding and setup screens expose the tested confirmation boundary with checked bilingual copy.",
+      "builder": "codex",
+      "reviewer": "claude"
+    },
+    {
+      "id": "P8",
+      "goal": "Build DESIGN.md live states, connect the gated readings and haptic, and prove app wiring for AC10 and AC13.",
+      "constraints": [
+        "Keep one top recording strip and a round meter with ticks only on the reachable upper arc.",
+        "The tappable cue card shows the exact user phrase, a conditional possible reading, its confirmed intention link and one suggested next sentence.",
+        "Test idle, reading, cue-card and recording-stopped view-model states.",
+        "Show three not-yet-measured slots; extend the Simulator self-test to exercise enrollment and reading paths before its existing sentinel.",
+        "Do not add recap, calendar, cloud analysis or user-data transmission."
+      ],
+      "check": "grep -rqE 'func liveViewModelStatesAndCueCardContents' Tests/AutoniteCoreTests && grep -rqE 'func liveMeterGeometryKeepsLowerTicksAbsent' Tests/AutoniteCoreTests && swift test --filter 'liveViewModelStatesAndCueCardContents|liveMeterGeometryKeepsLowerTicksAbsent' && xtool dev build && SIMCTL_CHILD_AUTONITE_SELFTEST=1 python3 \"$HOME/projects/agent-skills/ios-xtool/scripts/xtkit.py\" simtest . --sentinel 'autonite selftest succeeded'",
+      "effort": "xhigh",
+      "max_retries": 2,
+      "timeout_min": 90,
+      "handoff": "Pass 1 builds, its Simulator self-test reaches the sentinel, and live-screen device review can begin.",
+      "builder": "codex",
+      "reviewer": "claude"
+    }
+  ],
+  "end_gate": [
+    {
+      "what": "Enrollment matches the user at about 40 cm and 1 m without matching the other speaker, in Korean and English.",
+      "why_not_automatic": "Real voices, microphone placement and room acoustics determine match quality."
+    },
+    {
+      "what": "The short haptic is felt with the iPhone face-up on a table while recording.",
+      "why_not_automatic": "Simulator tests cannot measure what a person feels."
+    },
+    {
+      "what": "Korean copy sounds warm and natural.",
+      "why_not_automatic": "Tone and cultural fit require Danny's judgment."
+    },
+    {
+      "what": "The Korean register reading is useful during a real conversation.",
+      "why_not_automatic": "Fixture accuracy cannot establish usefulness or interruption cost."
+    },
+    {
+      "what": "Live cues arrive soon enough and never fire on the other person's speech in a two-person device trial.",
+      "why_not_automatic": "End-to-end timing and attribution depend on real speech and device conditions."
+    },
+    {
+      "what": "The AC13 screen follows DESIGN.md on device: one recording strip, round meter with upper-only ticks, and a readable cue card with all four required fields.",
+      "why_not_automatic": "View-model tests and Simulator launch do not establish the rendered screen's legibility or layout."
+    }
+  ]
+}

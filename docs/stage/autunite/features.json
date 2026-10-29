@@ -1,0 +1,86 @@
+[
+  {
+    "id": "F1",
+    "phase": "P1",
+    "criterion": "AC1 Enrollment script: 8 Korean (4 polite, 4 not) and 8 English sentences ship",
+    "passes": false
+  },
+  {
+    "id": "F2",
+    "phase": "P1",
+    "criterion": "AC2 Enrollment flow state machine; no path to done without consent; retry after a failed check",
+    "passes": false
+  },
+  {
+    "id": "F3",
+    "phase": "P2",
+    "criterion": "AC3 Voice profile persists across relaunch, restores into the diarizer, protected, one-call delete",
+    "passes": false
+  },
+  {
+    "id": "F4",
+    "phase": "P3",
+    "criterion": "AC4 Korean register reader passes a 30+ phrase fixture",
+    "passes": false
+  },
+  {
+    "id": "F5",
+    "phase": "P4",
+    "criterion": "AC5 English register reader passes a 20+ phrase fixture",
+    "passes": false
+  },
+  {
+    "id": "F6",
+    "phase": "P4",
+    "criterion": "AC6 Word-choice reading weighed by intention",
+    "passes": false
+  },
+  {
+    "id": "F7",
+    "phase": "P5",
+    "criterion": "AC7 An intended category never produces a mismatch",
+    "passes": false
+  },
+  {
+    "id": "F8",
+    "phase": "P6",
+    "criterion": "AC8 No reading or haptic for other, unknown, low-confidence or overlapped speech",
+    "passes": false
+  },
+  {
+    "id": "F9",
+    "phase": "P5",
+    "criterion": "AC9 Sarcasm, tone/manner, sharp/stiff always report notMeasured",
+    "passes": false
+  },
+  {
+    "id": "F10",
+    "phase": "P8",
+    "criterion": "AC10 App builds and Simulator self-test reaches its sentinel",
+    "passes": false
+  },
+  {
+    "id": "F11",
+    "phase": "P7",
+    "criterion": "AC11 Every new string in Korean and English; no forbidden phrasings",
+    "passes": false
+  },
+  {
+    "id": "F12",
+    "phase": "P5",
+    "criterion": "AC12 Confirmed per-category intention settings drive the readers (logic)",
+    "passes": false
+  },
+  {
+    "id": "F13",
+    "phase": "P7",
+    "criterion": "AC12 Setup UI confirms the per-category settings",
+    "passes": false
+  },
+  {
+    "id": "F14",
+    "phase": "P8",
+    "criterion": "AC13 DESIGN.md live states: recording strip, meter, cue card contents",
+    "passes": false
+  }
+]
