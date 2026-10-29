@@ -77,3 +77,55 @@ private func utterance(level: Double?, truth: SpeakerLabel?, predicted: SpeakerL
     #expect(report.jsonString().contains("\"tableFaceUp\"") == false)
     #expect(report.jsonString().contains("table, face up"))
 }
+
+// MARK: Voice split
+
+private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
+    WordSpan(text: text, start: start, end: end)
+}
+
+@Test func splitterCutsALineWhereTheSpeakerChanges() {
+    // "Is it louder? No, it just buzzes." spoken by the other person, then the user.
+    let words = [word("Is", 0.0, 0.3), word(" it", 0.3, 0.5), word(" louder?", 0.5, 1.0),
+                 word(" No,", 1.2, 1.5), word(" it", 1.5, 1.7), word(" buzzes.", 1.7, 2.2)]
+    let turns = [SpeakerTurn(slot: 1, start: 0.0, end: 1.1), SpeakerTurn(slot: 0, start: 1.15, end: 2.3)]
+    let pieces = VoiceSplitter.split(words: words, turns: turns, userSlot: 0)
+    #expect(pieces.map(\.text) == ["Is it louder?", "No, it buzzes."])
+    #expect(pieces.map(\.label) == [.other, .user])
+    #expect(pieces[1].confidence == 1)
+}
+
+@Test func splitterHoldsBackOverlappingSpeech() {
+    let words = [word("wait", 0.0, 0.5), word(" what", 0.5, 1.0)]
+    let turns = [SpeakerTurn(slot: 0, start: 0.0, end: 1.0), SpeakerTurn(slot: 1, start: 0.4, end: 1.0)]
+    let pieces = VoiceSplitter.split(words: words, turns: turns, userSlot: 0)
+    #expect(pieces.map(\.label) == [.user, .unknown])
+    #expect(pieces[1].overlapped)
+    #expect(CueGate.evaluate(Utterance(start: 0.5, end: 1, text: "what", latency: 0, meanLevelDB: nil,
+                                       predicted: pieces[1].label, predictionConfidence: pieces[1].confidence)) != .deliver)
+}
+
+@Test func splitterCallsNobodyTheUserWithoutEnrolment() {
+    let pieces = VoiceSplitter.split(words: [word("hi", 0, 0.5)], turns: [SpeakerTurn(slot: 0, start: 0, end: 1)], userSlot: nil)
+    #expect(pieces.map(\.label) == [.unknown])
+}
+
+@Test func splitterLeavesUncoveredWordsUnknown() {
+    let pieces = VoiceSplitter.split(words: [word("hi", 5, 5.5)], turns: [SpeakerTurn(slot: 0, start: 0, end: 1)], userSlot: 0)
+    #expect(pieces.map(\.label) == [.unknown])
+    #expect(pieces[0].confidence == 0)
+}
+
+@Test func recordedScoreCountsOtherCalledMe() {
+    let pieces = [
+        utterance(level: nil, truth: .user, predicted: .user, confidence: 0.9),
+        utterance(level: nil, truth: .other, predicted: .user, confidence: 0.8),
+        utterance(level: nil, truth: .other, predicted: .unknown),
+    ]
+    let score = AttributionScore(utterances: pieces, method: .voice)
+    #expect(score.labelled == 3)
+    #expect(score.committed == 2)
+    #expect(score.correct == 1)
+    #expect(score.otherAsUser == 1)
+    #expect(score.otherTotal == 2)
+}

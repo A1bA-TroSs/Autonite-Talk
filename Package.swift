@@ -6,13 +6,22 @@ let package = Package(
     // macOS is listed only so `swift test` can run AutoniteCore on a Mac; the app target is iOS-only.
     platforms: [.iOS("26.0"), .macOS(.v15)],
     products: [
-        // xtool builds the app from this library product (see xtool.yml).
         .library(name: "Autonite", targets: ["Autonite"]),
     ],
+    dependencies: [
+        // Speaker diarization for Pass 0 experiment 2. The "Diarizer" trait alone drops TTS and the
+        // prebuilt text-normalization binary. Code Apache 2.0; Sortformer model under the NVIDIA Open Model License.
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.18.0", traits: ["Diarizer"]),
+    ],
     targets: [
-        // Foundation-only logic, so `swift test` runs on a Mac without a device.
         .target(name: "AutoniteCore"),
-        .target(name: "Autonite", dependencies: ["AutoniteCore"]),
+        .target(
+            name: "Autonite",
+            dependencies: [
+                "AutoniteCore",
+                .product(name: "FluidAudio", package: "FluidAudio", condition: .when(platforms: [.iOS])),
+            ]
+        ),
         .testTarget(name: "AutoniteCoreTests", dependencies: ["AutoniteCore"]),
     ]
 )

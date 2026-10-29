@@ -20,6 +20,14 @@ public enum SpeechLanguage: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// How a session guessed who spoke.
+public enum AttributionMethod: String, Codable, Sendable {
+    /// Input level, scored leave-one-out against the hand tags.
+    case level
+    /// Diarizer plus an enrolled voice; predictions are fixed when made and scored as they stand.
+    case voice
+}
+
 public enum SpeakerLabel: String, Codable, CaseIterable, Sendable {
     case user
     case other
@@ -41,6 +49,11 @@ public struct Utterance: Codable, Identifiable, Sendable, Equatable {
     public var predictionConfidence: Double
     /// Who actually spoke, labelled by hand during or after the session.
     public var groundTruth: SpeakerLabel?
+    /// Voice attribution only: the diarizer slot, whether two voices overlapped, and the
+    /// wall-clock delay from the end of the speech until the piece was attributed.
+    public var voiceSlot: Int?
+    public var overlapped: Bool?
+    public var attributionDelay: Double?
 
     public init(
         id: UUID = UUID(),
@@ -51,7 +64,10 @@ public struct Utterance: Codable, Identifiable, Sendable, Equatable {
         meanLevelDB: Double?,
         predicted: SpeakerLabel = .unknown,
         predictionConfidence: Double = 0,
-        groundTruth: SpeakerLabel? = nil
+        groundTruth: SpeakerLabel? = nil,
+        voiceSlot: Int? = nil,
+        overlapped: Bool? = nil,
+        attributionDelay: Double? = nil
     ) {
         self.id = id
         self.start = start
@@ -62,5 +78,8 @@ public struct Utterance: Codable, Identifiable, Sendable, Equatable {
         self.predicted = predicted
         self.predictionConfidence = predictionConfidence
         self.groundTruth = groundTruth
+        self.voiceSlot = voiceSlot
+        self.overlapped = overlapped
+        self.attributionDelay = attributionDelay
     }
 }
