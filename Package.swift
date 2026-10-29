@@ -9,9 +9,10 @@ let package = Package(
         .library(name: "Autonite", targets: ["Autonite"]),
     ],
     dependencies: [
-        // Speaker diarization for Pass 0 experiment 2. The "Diarizer" trait alone drops TTS and the
-        // prebuilt text-normalization binary. Code Apache 2.0; Sortformer model under the NVIDIA Open Model License.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.18.0", traits: ["Diarizer"]),
+        // Speaker diarization for Pass 0 experiment 2. The prebuilt text-normalization binary is left out.
+        // "TTS" stays on only because xtool packages FluidAudio's TTS resource bundle whether or not the
+        // trait builds it, and fails when it is missing. Code Apache 2.0; Sortformer model under the NVIDIA Open Model License.
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.18.0", traits: ["Diarizer", "TTS"]),
     ],
     targets: [
         .target(name: "AutoniteCore"),
