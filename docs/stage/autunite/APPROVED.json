@@ -1,0 +1,14 @@
+{
+  "approved_at": "2026-10-29T21:42:31",
+  "hashes": {
+    "SPEC.md": "bf5eb4dad92d3bec3344df899118135da67d548c9f789b5f5c001eb4d096b5ca",
+    "PLAN.md": "44581d396d8589205e8de61028091016bad5e91079229c77b02e8a1a9fca9e4e",
+    "phases.json": "014fd7a7f51acc63505ff8692148658758784978045b152b5e88d71b51d11c6f",
+    "codex-gpt-6-sol/AGENTS-additions.md": "e4bbc2e8a1c1ead5cb109babbccb9c3a29c9003c1820304c2ea1a4f3d5d1d2d2",
+    "codex-gpt-6-sol/kickoff.md": "694b60cd0b1fca98a74057b90b80fbc0c146f423fe9f06edb7d2e6907d3479e5",
+    "codex-gpt-6-sol/resume.md": "a40da768d45603b161484e9c637690b8552549169e011f0eded1cec047665549",
+    "codex-gpt-6-sol/review.md": "5242b2ef59c9f02c7f3a59e266e67b6edde033bd5a809b21a8559bfaad8c978e",
+    "codex-gpt-6-sol/schemas/phase-report.json": "1c8fccf389f3c87a8794f0c4d6783845fc04900f966df5e0db7ab17603bcc373",
+    "codex-gpt-6-sol/schemas/review.json": "2516eccf76cc9436085017180b72404dfb9d1c7545dfe6666ce6285ec224e997"
+  }
+}
