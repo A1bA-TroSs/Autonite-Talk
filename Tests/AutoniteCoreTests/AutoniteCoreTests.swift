@@ -129,3 +129,27 @@ private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
     #expect(score.otherAsUser == 1)
     #expect(score.otherTotal == 2)
 }
+
+@Test func smoothingMergesShortPiecesWithoutCreatingUserSpeech() {
+    let pieces = [
+        VoicePiece(text: "a", start: 0, end: 2, slot: 1, label: .other, confidence: 0.9, overlapped: false),
+        VoicePiece(text: "b", start: 2, end: 2.3, slot: 0, label: .user, confidence: 1, overlapped: false),
+        VoicePiece(text: "c", start: 2.3, end: 4, slot: 0, label: .user, confidence: 0.9, overlapped: false),
+        VoicePiece(text: "d", start: 4, end: 6, slot: 0, label: .user, confidence: 0.8, overlapped: false),
+    ]
+    let smoothed = VoiceSplitter.smooth(pieces)
+    #expect(smoothed.map(\.text) == ["a b", "c", "d"])
+    #expect(smoothed.map(\.label) == [.unknown, .user, .user])
+    #expect(smoothed[0].confidence == 0)
+}
+
+@Test func verifierDropsUserPiecesThatDoNotMatchTheEnrolledVoice() {
+    let piece = VoicePiece(text: "x", start: 0, end: 1, slot: 0, label: .user, confidence: 1, overlapped: false)
+    #expect(VoiceVerifier.verify(piece, similarity: 0.8).label == .user)
+    #expect(VoiceVerifier.verify(piece, similarity: 0.2).label == .unknown)
+    #expect(VoiceVerifier.verify(piece, similarity: nil).label == .unknown)
+    let other = VoicePiece(text: "y", start: 0, end: 1, slot: 1, label: .other, confidence: 0.9, overlapped: false)
+    #expect(VoiceVerifier.verify(other, similarity: nil).label == .other)
+    #expect(VoiceVerifier.cosineSimilarity([1, 0], [1, 0]) == 1)
+    #expect(VoiceVerifier.cosineSimilarity([1, 0], [0, 1]) == 0)
+}

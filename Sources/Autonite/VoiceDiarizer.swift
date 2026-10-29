@@ -19,7 +19,17 @@ final class VoiceDiarizer: @unchecked Sendable {
 
     private let lock = NSLock()
     private let diarizer = SortformerDiarizer(config: .default)
+    /// Used only for its WeSpeaker voiceprints (experiment 3), not for diarization.
+    private let voiceprints = DiarizerManager()
+    private let converter = AudioConverter()
     private var loaded = false
+    private var enrolledPrint: [Float]?
+    /// The last `recentSeconds` of 16 kHz audio, in memory only, so pieces can be voiceprinted.
+    private var recent: [Float] = []
+    private var recentEnd = 0.0
+    private var inputSamples = 0
+    private static let recentSeconds = 60.0
+    private static let printRate = 16_000.0
     private var finalized: [SpeakerTurn] = []
     private var tentative: [SpeakerTurn] = []
     private var userSlot: Int?
@@ -30,8 +40,10 @@ final class VoiceDiarizer: @unchecked Sendable {
     func load() async throws {
         if isLoaded { return }
         let models = try await SortformerModels.loadFromHuggingFace(config: .default)
+        let printModels = try await DiarizerModels.downloadIfNeeded()
         lock.withLock {
             diarizer.initialize(models: models)
+            voiceprints.initialize(models: printModels)
             loaded = true
         }
     }
@@ -43,6 +55,11 @@ final class VoiceDiarizer: @unchecked Sendable {
             diarizer.reset()
             finalized = []
             tentative = []
+            recent = []
+            recentEnd = 0
+            inputSamples = 0
+            let clip = try converter.resample(enrollment, from: sampleRate)
+            enrolledPrint = try voiceprints.extractSpeakerEmbedding(from: Array(clip.suffix(Int(Self.printRate * 10))))
             userSlot = try diarizer.enrollSpeaker(withAudio: enrollment, sourceSampleRate: sampleRate, named: "Me")?.index
             return userSlot
         }
@@ -51,6 +68,12 @@ final class VoiceDiarizer: @unchecked Sendable {
     func feed(_ samples: [Float], sampleRate: Double) throws {
         try lock.withLock {
             try diarizer.addAudio(samples, sourceSampleRate: sampleRate)
+            // Place each chunk by the input sample count so resampling rounding doesn't drift.
+            inputSamples += samples.count
+            recentEnd = Double(inputSamples) / sampleRate
+            recent += try converter.resample(samples, from: sampleRate)
+            let keep = Int(Self.recentSeconds * Self.printRate)
+            if recent.count > keep { recent.removeFirst(recent.count - keep) }
             while let update = try diarizer.process() {
                 apply(update)
             }
@@ -73,6 +96,28 @@ final class VoiceDiarizer: @unchecked Sendable {
                 finalizedUntil: Double(diarizer.numFramesProcessed) * frameSeconds,
                 userSlot: userSlot
             )
+        }
+    }
+
+    /// Cosine similarity between the enrolled voice and the audio from `start` to `end`, or nil
+    /// when there is no enrolment or that audio is no longer held.
+    func voiceMatch(start: Double, end: Double) -> Double? {
+        lock.withLock {
+            guard let enrolledPrint, end > start else { return nil }
+            let recentStart = recentEnd - Double(recent.count) / Self.printRate
+            let from = Int(((start - recentStart) * Self.printRate).rounded())
+            let to = Int(((end - recentStart) * Self.printRate).rounded())
+            guard from >= 0, to <= recent.count, to > from else { return nil }
+            guard let piecePrint = try? voiceprints.extractSpeakerEmbedding(from: Array(recent[from..<to])) else { return nil }
+            return VoiceVerifier.cosineSimilarity(piecePrint, enrolledPrint)
+        }
+    }
+
+    /// Clears the held audio and voiceprint at the end of a session.
+    func clearAudio() {
+        lock.withLock {
+            recent = []
+            enrolledPrint = nil
         }
     }
 

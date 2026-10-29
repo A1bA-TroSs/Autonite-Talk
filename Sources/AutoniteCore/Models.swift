@@ -54,6 +54,8 @@ public struct Utterance: Codable, Identifiable, Sendable, Equatable {
     public var voiceSlot: Int?
     public var overlapped: Bool?
     public var attributionDelay: Double?
+    /// Voice attribution only: cosine similarity of a slot-Me piece's voiceprint to the enrolment.
+    public var voiceMatch: Double?
 
     public init(
         id: UUID = UUID(),
@@ -67,7 +69,8 @@ public struct Utterance: Codable, Identifiable, Sendable, Equatable {
         groundTruth: SpeakerLabel? = nil,
         voiceSlot: Int? = nil,
         overlapped: Bool? = nil,
-        attributionDelay: Double? = nil
+        attributionDelay: Double? = nil,
+        voiceMatch: Double? = nil
     ) {
         self.id = id
         self.start = start
@@ -81,5 +84,6 @@ public struct Utterance: Codable, Identifiable, Sendable, Equatable {
         self.voiceSlot = voiceSlot
         self.overlapped = overlapped
         self.attributionDelay = attributionDelay
+        self.voiceMatch = voiceMatch
     }
 }

@@ -36,6 +36,18 @@ public struct VoicePiece: Sendable, Equatable {
     /// Mean share of the piece's words covered by its speaker alone, 0...1.
     public let confidence: Double
     public let overlapped: Bool
+
+    public init(text: String, start: Double, end: Double, slot: Int?, label: SpeakerLabel, confidence: Double, overlapped: Bool) {
+        self.text = text
+        self.start = start
+        self.end = end
+        self.slot = slot
+        self.label = label
+        self.confidence = confidence
+        self.overlapped = overlapped
+    }
+
+    public var duration: Double { end - start }
 }
 
 /// Cuts a transcript line where the speaker changes, using word times and a diarizer timeline.
@@ -109,5 +121,70 @@ public enum VoiceSplitter {
             if overlap > 0 { covered[turn.slot, default: 0] += overlap }
         }
         return covered.mapValues { min($0 / duration, 1) }
+    }
+}
+
+extension VoiceSplitter {
+    /// Pieces shorter than this are merged into a neighbour.
+    public static let minimumPieceSeconds = 0.5
+
+    /// Merges pieces shorter than `minimumPieceSeconds` into the piece before them (or after,
+    /// for the first). Two pieces with different labels merge as `unknown`, so smoothing can
+    /// only take speech away from the user, never give it.
+    public static func smooth(_ pieces: [VoicePiece]) -> [VoicePiece] {
+        var result: [VoicePiece] = []
+        for piece in pieces {
+            if let last = result.last, last.duration < minimumPieceSeconds || piece.duration < minimumPieceSeconds {
+                result[result.count - 1] = merge(last, piece)
+            } else {
+                result.append(piece)
+            }
+        }
+        return result
+    }
+
+    static func merge(_ a: VoicePiece, _ b: VoicePiece) -> VoicePiece {
+        let label = a.label == b.label ? a.label : .unknown
+        let total = a.duration + b.duration
+        let confidence = label == .unknown || total <= 0
+            ? 0 : (a.confidence * a.duration + b.confidence * b.duration) / total
+        return VoicePiece(
+            text: a.text + " " + b.text, start: a.start, end: b.end,
+            slot: a.slot == b.slot ? a.slot : nil, label: label,
+            confidence: confidence, overlapped: a.overlapped || b.overlapped
+        )
+    }
+}
+
+/// Checks that speech the diarizer put in the user's slot sounds like the enrolled voice.
+///
+/// The diarizer only tracks which slot is talking. When the user goes quiet under a louder
+/// voice, that voice can drift into the user's slot (Pass 0 run, 2026-10-29). Each `user`
+/// piece is kept only when its voiceprint is close enough to the enrolment's.
+public enum VoiceVerifier {
+    /// Cosine similarity a `user` piece needs to stay `user`. Starting value; tune it from
+    /// tagged runs so other voices give no false Me.
+    public static let threshold = 0.5
+
+    /// Relabels a `user` piece as `unknown` when its similarity is missing or below the threshold.
+    public static func verify(_ piece: VoicePiece, similarity: Double?) -> VoicePiece {
+        guard piece.label == .user else { return piece }
+        if let similarity, similarity >= threshold { return piece }
+        return VoicePiece(
+            text: piece.text, start: piece.start, end: piece.end, slot: piece.slot,
+            label: .unknown, confidence: 0, overlapped: piece.overlapped
+        )
+    }
+
+    public static func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Double? {
+        guard a.count == b.count, !a.isEmpty else { return nil }
+        var dot = 0.0, normA = 0.0, normB = 0.0
+        for (x, y) in zip(a, b) {
+            dot += Double(x) * Double(y)
+            normA += Double(x) * Double(x)
+            normB += Double(y) * Double(y)
+        }
+        guard normA > 0, normB > 0 else { return nil }
+        return dot / (normA.squareRoot() * normB.squareRoot())
     }
 }

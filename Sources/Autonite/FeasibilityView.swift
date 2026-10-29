@@ -212,6 +212,7 @@ private struct UtteranceRow: View {
                 }
                 Spacer()
                 if utterance.overlapped == true { Text("overlap") }
+                if let match = utterance.voiceMatch { Text(String(format: "match %.2f", match)) }
                 Text("guess: \(utterance.predicted.rawValue)" + (utterance.predicted == .unknown ? "" : String(format: " %.2f", utterance.predictionConfidence)))
             }
             .font(.caption)
