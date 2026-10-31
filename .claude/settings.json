@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'REQUIRED FIRST STEP: connect to Danny'\\''s ontology vault (/Users/younseopark/projects/ontology-vault) before any substantive work. Follow \"Vault connection (required, every session)\" in CLAUDE.md. If it cannot be reached, say so in your first reply.'"
+          }
+        ]
+      }
+    ]
+  }
+}
