@@ -1,0 +1,158 @@
+{
+  "deviceModel": "iPhone15,4",
+  "hapticTrials": [
+    {
+      "at": "2026-10-28T13:09:17Z",
+      "duringRecording": false,
+      "felt": true,
+      "placement": "table, face up"
+    },
+    {
+      "at": "2026-10-28T13:09:17Z",
+      "duringRecording": false,
+      "felt": true,
+      "placement": "table, face up"
+    },
+    {
+      "at": "2026-10-28T13:09:18Z",
+      "duringRecording": false,
+      "felt": true,
+      "placement": "table, face up"
+    },
+    {
+      "at": "2026-10-28T13:09:18Z",
+      "duringRecording": false,
+      "felt": true,
+      "placement": "table, face up"
+    },
+    {
+      "at": "2026-10-28T13:09:18Z",
+      "duringRecording": false,
+      "felt": true,
+      "placement": "table, face up"
+    },
+    {
+      "at": "2026-10-28T13:09:18Z",
+      "duringRecording": false,
+      "felt": true,
+      "placement": "table, face up"
+    },
+    {
+      "at": "2026-10-28T13:09:18Z",
+      "duringRecording": false,
+      "felt": true,
+      "placement": "table, face up"
+    }
+  ],
+  "hapticsSupported": true,
+  "locales": [
+    {
+      "checkedAt": "2026-10-28T13:06:33Z",
+      "installedBeforeRun": true,
+      "language": "english",
+      "resolvedIdentifier": "en-US",
+      "supported": true
+    },
+    {
+      "checkedAt": "2026-10-28T13:06:33Z",
+      "installedBeforeRun": true,
+      "language": "korean",
+      "resolvedIdentifier": "ko-KR",
+      "supported": true
+    }
+  ],
+  "notes": "",
+  "osVersion": "26.7.2",
+  "sessions": [
+    {
+      "audioSessionMode": "AVAudioSessionModeMeasurement",
+      "duration": 2.3877170085906982,
+      "failures": [],
+      "interruptions": 0,
+      "language": "english",
+      "startedAt": "2026-10-28T13:07:08Z",
+      "utterances": []
+    },
+    {
+      "audioSessionMode": "AVAudioSessionModeMeasurement",
+      "duration": 97.7194550037384,
+      "failures": [],
+      "interruptions": 0,
+      "language": "korean",
+      "startedAt": "2026-10-28T13:07:12Z",
+      "utterances": [
+        {
+          "end": 5.1,
+          "id": "3ACDE7E6-0E30-4BA1-8A98-431A4DC03AB6",
+          "latency": 0.947245025634766,
+          "meanLevelDB": -41.88636114450919,
+          "predicted": "unknown",
+          "predictionConfidence": 0,
+          "start": 0,
+          "text": ""
+        },
+        {
+          "end": 22.74,
+          "id": "6648358C-99C9-405E-B211-9747DA2CA090",
+          "latency": 0.6076629257202164,
+          "meanLevelDB": -39.40354128454975,
+          "predicted": "unknown",
+          "predictionConfidence": 0,
+          "start": 5.1,
+          "text": ""
+        },
+        {
+          "end": 38.28,
+          "id": "102B3D07-9178-4556-ABBE-349CACA2A048",
+          "latency": 0.3624869298934925,
+          "meanLevelDB": -38.464200932608684,
+          "predicted": "unknown",
+          "predictionConfidence": 0,
+          "start": 22.74,
+          "text": ""
+        },
+        {
+          "end": 61.8,
+          "id": "D2D6A16E-CBE4-4A92-B9A9-093F6C8FA90E",
+          "latency": 0.8673909425735502,
+          "meanLevelDB": -38.49404677919232,
+          "predicted": "unknown",
+          "predictionConfidence": 0,
+          "start": 38.28,
+          "text": ""
+        },
+        {
+          "end": 77.64,
+          "id": "2F9871AC-FD27-4BB3-A57A-A9037932552A",
+          "latency": 0.4069540357589716,
+          "meanLevelDB": -39.944423063589944,
+          "predicted": "unknown",
+          "predictionConfidence": 0,
+          "start": 62.64,
+          "text": ""
+        },
+        {
+          "end": 88.08,
+          "id": "CB6E8677-1B26-47ED-87F0-67CAA6C162F4",
+          "latency": 0.44822792530059985,
+          "meanLevelDB": -39.48793485537583,
+          "predicted": "unknown",
+          "predictionConfidence": 0,
+          "start": 77.64,
+          "text": ""
+        },
+        {
+          "end": 97.2,
+          "id": "B02F5475-1678-416A-A14F-79B29473DEBD",
+          "latency": 0.45114796161651327,
+          "meanLevelDB": -42.51482453184018,
+          "predicted": "unknown",
+          "predictionConfidence": 0,
+          "start": 88.08,
+          "text": ""
+        }
+      ]
+    }
+  ],
+  "transcriberAvailable": true
+}

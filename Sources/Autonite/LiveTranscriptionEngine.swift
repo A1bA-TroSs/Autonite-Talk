@@ -7,7 +7,7 @@ import Speech
 enum EngineEvent: Sendable {
     case level(db: Double)
     case volatile(text: String)
-    case final(text: String, start: Double, end: Double, latency: Double)
+    case final(text: String, start: Double, end: Double, latency: Double, words: [WordSpan])
     case interruption(began: Bool)
     case failed(String)
 }
@@ -41,6 +41,8 @@ final class LiveTranscriptionEngine: @unchecked Sendable {
 
     let events: AsyncStream<EngineEvent>
     let levels = LevelTimeline()
+    /// Mono samples at the input rate, for the voice diarizer. Set before `start`; called on the tap thread.
+    var onSamples: (@Sendable ([Float], Double) -> Void)?
 
     private let continuation: AsyncStream<EngineEvent>.Continuation
     private let audioEngine = AVAudioEngine()
@@ -118,7 +120,7 @@ final class LiveTranscriptionEngine: @unchecked Sendable {
                         let start = result.range.start.seconds
                         let end = result.range.end.seconds
                         let latency = Date().timeIntervalSince(captureStart) - end
-                        continuation.yield(.final(text: text, start: start, end: end, latency: latency))
+                        continuation.yield(.final(text: text, start: start, end: end, latency: latency, words: Self.words(in: result.text)))
                     } else {
                         continuation.yield(.volatile(text: text))
                     }
@@ -152,6 +154,20 @@ final class LiveTranscriptionEngine: @unchecked Sendable {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
+    /// Word runs with their audio times. Runs without a time (spacing) join the word before them.
+    private static func words(in text: AttributedString) -> [WordSpan] {
+        var words: [WordSpan] = []
+        for run in text.runs {
+            let piece = String(text[run.range].characters)
+            if let range = run.audioTimeRange {
+                words.append(WordSpan(text: piece, start: range.start.seconds, end: range.end.seconds))
+            } else if !words.isEmpty {
+                words[words.count - 1].text += piece
+            }
+        }
+        return words
+    }
+
     // MARK: Capture
 
     private func startCapture(into builder: AsyncStream<AnalyzerInput>.Continuation, analyzerFormat: AVAudioFormat) throws {
@@ -164,6 +180,7 @@ final class LiveTranscriptionEngine: @unchecked Sendable {
         let continuation = self.continuation
         let sampleRate = inputFormat.sampleRate
         let clock = FrameClock()
+        let onSamples = self.onSamples
 
         input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { @Sendable buffer, _ in
             let midpoint = clock.advance(by: buffer.frameLength, sampleRate: sampleRate)
@@ -171,6 +188,7 @@ final class LiveTranscriptionEngine: @unchecked Sendable {
                 let db = LevelTimeline.rmsDB(UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
                 levels.append(time: midpoint, db: db)
                 continuation.yield(.level(db: db))
+                onSamples?(Array(UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength))), sampleRate)
             }
             if let converted = converter.convert(buffer) {
                 builder.yield(AnalyzerInput(buffer: converted))

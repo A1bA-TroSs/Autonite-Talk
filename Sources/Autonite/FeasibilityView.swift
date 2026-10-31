@@ -14,6 +14,7 @@ struct FeasibilityView: View {
             NavigationStack {
                 List {
                     deviceSection
+                    voiceSection
                     sessionSection
                     if !model.utterances.isEmpty { utteranceSection }
                     hapticSection
@@ -36,6 +37,31 @@ struct FeasibilityView: View {
                         .foregroundStyle(check.supported ? Color.primary : Color.red)
                 }
             }
+        }
+    }
+
+    private var voiceSection: some View {
+        Section {
+            switch model.voiceStatus {
+            case .notLoaded:
+                Button("Load voice model") { Task { await model.loadVoiceModel() } }
+            case .loading:
+                LabeledContent("Voice model", value: "downloading…")
+            case .ready:
+                LabeledContent("Voice model", value: "ready")
+            case .failed(let message):
+                Button("Retry voice model") { Task { await model.loadVoiceModel() } }
+                Text(message).foregroundStyle(.red)
+            }
+            Button(model.isEnrolling ? "Recording your voice… (10 s)" : (model.isEnrolled ? "Re-enrol my voice" : "Enrol my voice (10 s)")) {
+                Task { await model.enroll() }
+            }
+            .disabled(model.isEnrolling || model.state != .idle)
+            LabeledContent("Next session uses", value: model.method == .voice ? "voice" : "level")
+        } header: {
+            Text("Voice attribution")
+        } footer: {
+            Text("Load the model once (it downloads over the network). Then enrol: only you speak, normally, for 10 seconds. The clip stays in memory and is never saved.")
         }
     }
 
@@ -75,7 +101,9 @@ struct FeasibilityView: View {
         } header: {
             Text("Utterances: who really spoke?")
         } footer: {
-            Text("Tag each line Me or Other. Predictions use the level baseline fitted on the other tags.")
+            Text(model.sessionMethod == .voice
+                 ? "Tag each piece Me or Other. Pieces come from the voice model and its guesses don't change when you tag."
+                 : "Tag each line Me or Other. Predictions use the level baseline fitted on the other tags.")
         }
     }
 
@@ -103,6 +131,11 @@ struct FeasibilityView: View {
             let latency = model.latency
             LabeledContent("Latency median", value: format(latency.median))
             LabeledContent("Latency p90", value: format(latency.p90))
+            if model.sessionMethod == .voice {
+                let delay = model.attributionDelay
+                LabeledContent("Attribution delay median", value: format(delay.median))
+                LabeledContent("Attribution delay p90", value: format(delay.p90))
+            }
             let score = model.attribution
             LabeledContent("Labelled", value: "\(score.labelled)")
             LabeledContent("Accuracy when committed", value: percent(score.accuracyWhenCommitted))
@@ -178,7 +211,9 @@ private struct UtteranceRow: View {
                     Text(String(format: "%.0f dB", level))
                 }
                 Spacer()
-                Text("guess: \(utterance.predicted.rawValue)")
+                if utterance.overlapped == true { Text("overlap") }
+                if let match = utterance.voiceMatch { Text(String(format: "match %.2f", match)) }
+                Text("guess: \(utterance.predicted.rawValue)" + (utterance.predicted == .unknown ? "" : String(format: " %.2f", utterance.predictionConfidence)))
             }
             .font(.caption)
             .foregroundStyle(.secondary)
