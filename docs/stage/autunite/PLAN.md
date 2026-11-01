@@ -1,6 +1,6 @@
 # PLAN.md — Autunite Pass 1
 
-Pass 1 starts after Xcode is installed and selected, xtool is installed, and `docs/evidence/PASS0_DECISION.md` records `decision: go`. The current machine selects CommandLineTools, and the decision file is absent.
+Pass 1 starts after the GitHub CLI is signed in (phase checks run CI through `scripts/ci_check.sh`, so no local Xcode is needed), xtool is installed, and `docs/evidence/PASS0_DECISION.md` records `decision: go`. The decision file is absent until the Pass 0 gate is scored.
 
 | Phase | Deliverable | Acceptance criteria |
 |---|---|---|
