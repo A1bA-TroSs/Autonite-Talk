@@ -26,11 +26,12 @@ public struct FeasibilityReport: Codable, Sendable {
         public let utterances: [Utterance]
         public let interruptions: Int
         public let failures: [String]
+        public let attributionMethod: AttributionMethod?
 
         public var latency: LatencyStats { LatencyStats(samples: utterances.map(\.latency)) }
-        public var attribution: AttributionScore { AttributionScore(utterances: utterances) }
+        public var attribution: AttributionScore { AttributionScore(utterances: utterances, method: attributionMethod ?? .level) }
 
-        public init(language: SpeechLanguage, startedAt: Date, duration: Double, audioSessionMode: String, utterances: [Utterance], interruptions: Int, failures: [String]) {
+        public init(language: SpeechLanguage, startedAt: Date, duration: Double, audioSessionMode: String, utterances: [Utterance], interruptions: Int, failures: [String], attributionMethod: AttributionMethod = .level) {
             self.language = language
             self.startedAt = startedAt
             self.duration = duration
@@ -38,6 +39,7 @@ public struct FeasibilityReport: Codable, Sendable {
             self.utterances = utterances
             self.interruptions = interruptions
             self.failures = failures
+            self.attributionMethod = attributionMethod
         }
     }
 

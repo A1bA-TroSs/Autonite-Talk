@@ -38,4 +38,24 @@ public struct AttributionScore: Codable, Sendable, Equatable {
         self.otherTotal = labelled.filter { $0.groundTruth == .other }.count
         self.minimumConfidence = minimumConfidence
     }
+
+    /// Scores the predictions already on each utterance, for predictors that don't learn
+    /// from the hand tags (voice attribution).
+    public init(recorded utterances: [Utterance], minimumConfidence: Double = CueGate.defaultMinimumConfidence) {
+        let labelled = utterances.filter { $0.groundTruth == .user || $0.groundTruth == .other }
+        let committed = labelled.filter { $0.predicted != .unknown && $0.predictionConfidence >= minimumConfidence }
+        self.labelled = labelled.count
+        self.committed = committed.count
+        self.correct = committed.filter { $0.predicted == $0.groundTruth }.count
+        self.otherAsUser = committed.filter { $0.groundTruth == .other && $0.predicted == .user }.count
+        self.otherTotal = labelled.filter { $0.groundTruth == .other }.count
+        self.minimumConfidence = minimumConfidence
+    }
+
+    public init(utterances: [Utterance], method: AttributionMethod) {
+        switch method {
+        case .level: self.init(utterances: utterances)
+        case .voice: self.init(recorded: utterances)
+        }
+    }
 }
