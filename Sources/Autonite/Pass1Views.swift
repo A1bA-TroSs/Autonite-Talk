@@ -298,7 +298,7 @@ struct CueCard: View {
                 Button(model.copy(.cueDismiss)) { model.screen.dismissCue() }
                     .buttonStyle(.bordered)
                 Spacer()
-                Button(model.copy(.cueMarkInaccurate)) { model.screen.markInaccurate() }
+                Button(model.copy(.cueMarkInaccurate)) { model.markInaccurate() }
                     .buttonStyle(.bordered)
             }
         }

@@ -141,6 +141,17 @@ final class Pass1Model {
         route = .setup
     }
 
+    /// Saves the mark on the phone so wrong cues can be counted later (SPEC AC13).
+    func markInaccurate() {
+        screen.markInaccurate()
+        guard let folder = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return }
+        let file = folder.appendingPathComponent("inaccurate-cues.json")
+        var saved = (try? JSONDecoder().decode([LiveScreen.InaccurateMark].self, from: Data(contentsOf: file))) ?? []
+        if let latest = screen.marks.last { saved.append(latest) }
+        try? JSONEncoder().encode(saved).write(to: file, options: [.atomic, .completeFileProtection])
+        message = copy(.cueMarked)
+    }
+
     private func receive(_ utterance: Utterance) {
         let outcome = ReadingPipeline.evaluate(utterance, language: language, settings: setup.confirmed)
         guard screen.receive(outcome, phrase: utterance.text, language: language) else { return }
