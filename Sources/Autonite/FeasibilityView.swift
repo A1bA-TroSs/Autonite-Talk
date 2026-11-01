@@ -5,6 +5,7 @@ import SwiftUI
 /// Pass 0 harness. Not the product UI: it exists to gather device evidence.
 struct FeasibilityView: View {
     @Bindable var model: FeasibilityModel
+    @State private var askingFelt = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -112,15 +113,16 @@ struct FeasibilityView: View {
             Picker("Placement", selection: $model.placement) {
                 ForEach(FeasibilityReport.Placement.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
-            Button("Play cue pulse") { model.pulse() }
-            HStack {
-                Button("Felt it") { model.recordHaptic(felt: true) }
-                    .buttonStyle(.borderedProminent)
-                Spacer()
-                Button("Didn't feel it") { model.recordHaptic(felt: false) }
-                    .buttonStyle(.bordered)
+            // The phone can't sense whether the user felt the pulse, so each pulse asks.
+            Button("Play cue pulse") {
+                model.pulse()
+                askingFelt = true
             }
-            Text("\(model.report.hapticTrials.count) trial(s) recorded")
+            .alert("Did you feel the pulse?", isPresented: $askingFelt) {
+                Button("Felt it") { model.recordHaptic(felt: true) }
+                Button("Didn't feel it") { model.recordHaptic(felt: false) }
+            }
+            Text("\(model.report.hapticTrials.count) trial(s) recorded, \(model.report.hapticTrials.filter(\.duringRecording).count) while recording")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
