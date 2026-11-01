@@ -182,8 +182,10 @@ private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
     flow.confirmPlacement()
     for _ in 0..<8 { flow.finishSentence() }
     #expect(flow.step == .freeSpeech)
-    #expect(!flow.finishFreeSpeech(seconds: 12))
-    #expect(flow.finishFreeSpeech(seconds: 25))
+    let tooShort = flow.finishFreeSpeech(seconds: 12)
+    #expect(!tooShort)
+    let accepted = flow.finishFreeSpeech(seconds: 25)
+    #expect(accepted)
     // A failed check asks for two more sentences, then checks again.
     flow.finishPhraseCheck(passed: false)
     #expect(flow.step == .extraSentence(0))
