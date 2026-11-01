@@ -479,10 +479,12 @@ private final class FakeEnroller: SpeakerEnrolling {
                          predicted: .user, predictionConfidence: 0.9, overlapped: false, voiceMatch: 0.8)
     let outcome = ReadingPipeline.evaluate(mine, language: .korean, settings: .niceDefault)
     // Nothing happens before the session starts.
-    #expect(!screen.receive(outcome, phrase: mine.text, language: .korean))
+    let beforeStart = screen.receive(outcome, phrase: mine.text, language: .korean)
+    #expect(!beforeStart)
     screen.start()
     #expect(screen.phase == .listening)
-    #expect(screen.receive(outcome, phrase: mine.text, language: .korean))
+    let afterStart = screen.receive(outcome, phrase: mine.text, language: .korean)
+    #expect(afterStart)
     #expect(screen.needle == 1)
     guard case .cueWaiting(let cue) = screen.phase else {
         Issue.record("expected a waiting cue")
@@ -501,7 +503,8 @@ private final class FakeEnroller: SpeakerEnrolling {
     #expect(screen.marks.map(\.phrase) == [mine.text])
     // Another person's words never open a cue.
     let theirs = Utterance(start: 0, end: 2, text: mine.text, latency: 0, meanLevelDB: nil, predicted: .other, predictionConfidence: 1)
-    #expect(!screen.receive(ReadingPipeline.evaluate(theirs, language: .korean, settings: .niceDefault), phrase: theirs.text, language: .korean))
+    let theirsBuzz = screen.receive(ReadingPipeline.evaluate(theirs, language: .korean, settings: .niceDefault), phrase: theirs.text, language: .korean)
+    #expect(!theirsBuzz)
     screen.stop()
     #expect(screen.phase == .stopped)
 }
