@@ -27,13 +27,13 @@
     "id": "F5",
     "phase": "P4",
     "criterion": "AC5 English register reader passes a 20+ phrase fixture",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F6",
     "phase": "P4",
     "criterion": "AC6 Word-choice reading weighed by intention",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F7",

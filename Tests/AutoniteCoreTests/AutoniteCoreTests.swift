@@ -288,3 +288,53 @@ private final class FakeEnroller: SpeakerEnrolling {
     #expect(KoreanRegisterReader.read("회의는 세 시에 시작합니다.", setting: .politeExpected).found == [.formal])
     #expect(KoreanRegisterReader.read("지금 가고 있어요", setting: .politeExpected).found == [.polite])
 }
+
+// MARK: Pass 1 P4: English formality and word choice
+
+@Test func englishRegisterTwentyPhraseFixture() {
+    // (phrase, reading when formal speech is expected)
+    let fixture: [(String, Reading)] = [
+        ("Could you walk me through the numbers again before Thursday?", .aligned),
+        ("Would you mind sending the file later today?", .aligned),
+        ("Thank you, that helps.", .aligned),
+        ("Please take a seat.", .aligned),
+        ("I'd appreciate a second look at the draft.", .aligned),
+        ("Sorry, I missed that.", .aligned),
+        ("That's fair. Let's keep the budget where it is for now.", .aligned),
+        ("Which version should we show the vendor on Monday?", .aligned),
+        ("I think the bigger issue is the schedule.", .aligned),
+        ("We both want this to work.", .aligned),
+        ("Yeah, I'm gonna skip that meeting.", .check),
+        ("Nah, that's not happening.", .check),
+        ("Dude, just send it.", .check),
+        ("Whatever, do what you want.", .check),
+        ("I wanna wrap this up.", .check),
+        ("We gotta move faster on this.", .check),
+        ("Yep.", .check),
+        ("Sure.", .unknown),
+        ("Okay then.", .unknown),
+        ("Hmm", .unknown),
+        ("...", .unknown),
+    ]
+    #expect(fixture.count >= 20)
+    for (phrase, expected) in fixture {
+        #expect(EnglishRegisterReader.read(phrase, setting: .politeExpected) == expected, "\(phrase)")
+        let relaxed = EnglishRegisterReader.read(phrase, setting: .casualFine)
+        #expect(relaxed == (expected == .unknown ? .unknown : .aligned), "\(phrase)")
+    }
+}
+
+@Test func wordChoiceRespectsBluntIntention() {
+    let harsh = ["That idea is stupid.", "Shut up for a second.", "너 진짜 멍청하다.", "그만 좀 해, 짜증나.", "You never listen."]
+    let mild = ["I see it differently.", "그건 좀 다르게 생각해요.", "Let's try another way."]
+    for phrase in harsh {
+        #expect(WordChoiceReader.read(phrase, setting: .gentle) == .check, "\(phrase)")
+        #expect(WordChoiceReader.read(phrase, setting: .bluntFine) == .aligned, "\(phrase)")
+    }
+    for phrase in mild {
+        #expect(WordChoiceReader.read(phrase, setting: .gentle) == .aligned, "\(phrase)")
+    }
+    // "hell" is matched as a word, not inside "hello".
+    #expect(WordChoiceReader.read("Hello there", setting: .gentle) == .aligned)
+    #expect(WordChoiceReader.harshWords(in: "그만 좀 해, 짜증나.") == ["짜증나"])
+}
