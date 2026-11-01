@@ -2,16 +2,24 @@ name: iOS build
 
 # Builds and tests on GitHub's macOS runners, which come with Xcode,
 # so no Mac needs a local Xcode install to compile the app.
+# Public repo on a standard runner: Actions minutes are free. To keep usage low anyway,
+# docs-only changes don't build, a newer push cancels the older run, and the .ipa is kept 3 days.
 on:
   push:
     branches: [main]
+    paths-ignore: ['**/*.md', 'docs/**', 'assets/**']
   pull_request:
+    paths-ignore: ['**/*.md', 'docs/**', 'assets/**']
   workflow_dispatch:
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -57,3 +65,4 @@ jobs:
         with:
           name: Autonite-unsigned-ipa
           path: ${{ runner.temp }}/Autonite.ipa
+          retention-days: 3
