@@ -1,11 +1,11 @@
-# Proposed amendments to the approved Pass 1 spec (2026-11-01)
+# Amendments to the Pass 1 spec (approved by Danny 2026-11-01)
 
 The spec was approved on 2026-10-29, before two inputs:
 
 - Danny's decision of 2026-10-31: the meter reads toxicness in the user's own speech, nice by default and adjustable (INTENTIONAL.md, PR #3).
 - The competitor and technique teardown of 2026-10-31 (vault `S-autunite-speaker-teardown`), and the Pass 0 podcast run of 2026-10-29.
 
-These amendments are proposed, not approved. `SPEC.md`, `PLAN.md` and `phases.json` are unchanged, so the hashes in `APPROVED.json` still match the old approval. If Danny approves, fold them into those files and re-approve.
+Danny approved these on 2026-11-01. They are folded into `SPEC.md`, `PLAN.md` and `phases.json`, and `APPROVED.json` holds the new hashes. M4's build check is `scripts/ci_check.sh`.
 
 ## M1. Nice by default (AC7, AC12)
 
