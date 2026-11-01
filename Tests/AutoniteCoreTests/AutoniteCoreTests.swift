@@ -197,3 +197,35 @@ private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
     flow.withdrawConsent()
     #expect(flow.step == .declined)
 }
+
+// MARK: Pass 1 P2: voice profile
+
+@Test func voiceProfileStoreSurvivesRelaunchAndDeletes() throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("profile-\(UUID().uuidString)")
+    let profile = VoiceProfile(enrollmentAudio: [0.1, -0.2, 0.3], sampleRate: 16_000, voiceprint: [0.6, 0.8])
+    try VoiceProfileStore(directory: folder).save(profile)
+    // A fresh store, as after a relaunch, reads the same profile.
+    #expect(try VoiceProfileStore(directory: folder).load() == profile)
+    try VoiceProfileStore(directory: folder).delete()
+    #expect(!FileManager.default.fileExists(atPath: folder.path))
+    #expect(try VoiceProfileStore(directory: folder).load() == nil)
+}
+
+private final class FakeEnroller: SpeakerEnrolling {
+    var received: VoiceProfile?
+    func enroll(_ profile: VoiceProfile) throws -> Int? {
+        received = profile
+        return profile.enrollmentAudio.isEmpty ? nil : 0
+    }
+}
+
+@Test func diarizerAdapterAcceptsStoredProfile() throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("profile-\(UUID().uuidString)")
+    defer { try? VoiceProfileStore(directory: folder).delete() }
+    let store = VoiceProfileStore(directory: folder)
+    try store.save(VoiceProfile(enrollmentAudio: [0.1, 0.2], sampleRate: 48_000, voiceprint: [1, 0]))
+    let enroller = FakeEnroller()
+    let slot = try enroller.enroll(#require(try store.load()))
+    #expect(slot == 0)
+    #expect(enroller.received?.voiceprint == [1, 0])
+}

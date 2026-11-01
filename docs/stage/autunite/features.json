@@ -15,7 +15,7 @@
     "id": "F3",
     "phase": "P2",
     "criterion": "AC3 Voice profile persists across relaunch, restores into the diarizer, protected, one-call delete",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F4",

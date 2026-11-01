@@ -48,21 +48,19 @@ final class VoiceDiarizer: @unchecked Sendable {
         }
     }
 
+    /// Builds the saved profile from an enrolment clip: the audio plus its WeSpeaker voiceprint.
+    func makeProfile(samples: [Float], sampleRate: Double) throws -> VoiceProfile {
+        try lock.withLock {
+            let clip = try converter.resample(samples, from: sampleRate)
+            let voiceprint = try voiceprints.extractSpeakerEmbedding(from: Array(clip.suffix(Int(Self.printRate * 10))))
+            return VoiceProfile(enrollmentAudio: samples, sampleRate: sampleRate, voiceprint: voiceprint)
+        }
+    }
+
     /// Starts a new stream with the enrolled voice in a known slot. Returns that slot, or nil
     /// when enrolment found no speech. The enrolment audio is used here and not kept by the diarizer.
     func beginSession(enrollment: [Float], sampleRate: Double) throws -> Int? {
-        try lock.withLock {
-            diarizer.reset()
-            finalized = []
-            tentative = []
-            recent = []
-            recentEnd = 0
-            inputSamples = 0
-            let clip = try converter.resample(enrollment, from: sampleRate)
-            enrolledPrint = try voiceprints.extractSpeakerEmbedding(from: Array(clip.suffix(Int(Self.printRate * 10))))
-            userSlot = try diarizer.enrollSpeaker(withAudio: enrollment, sourceSampleRate: sampleRate, named: "Me")?.index
-            return userSlot
-        }
+        try enroll(makeProfile(samples: enrollment, sampleRate: sampleRate))
     }
 
     func feed(_ samples: [Float], sampleRate: Double) throws {
@@ -129,6 +127,24 @@ final class VoiceDiarizer: @unchecked Sendable {
 
     private static func turn(_ segment: DiarizerSegment) -> SpeakerTurn {
         SpeakerTurn(slot: segment.speakerIndex, start: Double(segment.startTime), end: Double(segment.endTime))
+    }
+}
+
+extension VoiceDiarizer: SpeakerEnrolling {
+    /// Starts a new stream with the profile's voice in a known slot (SPEC AC3). Returns that slot,
+    /// or nil when the enrolment audio held no speech.
+    func enroll(_ profile: VoiceProfile) throws -> Int? {
+        try lock.withLock {
+            diarizer.reset()
+            finalized = []
+            tentative = []
+            recent = []
+            recentEnd = 0
+            inputSamples = 0
+            enrolledPrint = profile.voiceprint
+            userSlot = try diarizer.enrollSpeaker(withAudio: profile.enrollmentAudio, sourceSampleRate: profile.sampleRate, named: "Me")?.index
+            return userSlot
+        }
     }
 }
 
