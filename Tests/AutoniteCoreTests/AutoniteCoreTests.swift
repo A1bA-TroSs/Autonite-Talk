@@ -391,3 +391,33 @@ private final class FakeEnroller: SpeakerEnrolling {
         }
     }
 }
+
+// MARK: Pass 1 P6: own-speech gate
+
+@Test func readingPipelineRejectsOtherUnknownOverlapAndLowConfidence() {
+    func piece(_ label: SpeakerLabel, confidence: Double = 0.95, overlapped: Bool = false, match: Double? = 0.8) -> Utterance {
+        Utterance(start: 0, end: 2, text: "그거 내가 할게.", latency: 0, meanLevelDB: nil,
+                  predicted: label, predictionConfidence: confidence, overlapped: overlapped, voiceMatch: match)
+    }
+    let settings = CategorySettings.niceDefault
+    let quiet: [Utterance] = [
+        piece(.other),
+        piece(.unknown, confidence: 0),
+        piece(.user, confidence: 0.5),
+        piece(.user, overlapped: true),
+        piece(.user, match: 0.4),
+    ]
+    for utterance in quiet {
+        guard case .quiet = ReadingPipeline.evaluate(utterance, language: .korean, settings: settings) else {
+            Issue.record("expected quiet for \(utterance.predicted) \(utterance.predictionConfidence)")
+            continue
+        }
+    }
+    // The same 반말 phrase, confidently the user's, is read and cued.
+    guard case .read(let readings, let cue) = ReadingPipeline.evaluate(piece(.user), language: .korean, settings: settings) else {
+        Issue.record("expected a reading")
+        return
+    }
+    #expect(cue)
+    #expect(readings.mismatches == [.register])
+}

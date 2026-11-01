@@ -45,7 +45,7 @@
     "id": "F8",
     "phase": "P6",
     "criterion": "AC8 No reading or haptic for other, unknown, low-confidence or overlapped speech",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F9",
