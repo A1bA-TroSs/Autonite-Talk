@@ -39,6 +39,14 @@ The not-yet-measured slots are sarcasm (비아냥), manner (말투) and voice to
 - The free fallback is Qwen3 1.7B 4-bit through MLX Swift (Apache-2.0). It has not been measured.
 - The recap is built in chunks with utterance ids. Speaker owner comes from the attribution labels, never from the language model.
 
+## M6. Cue haptic is a rising buzz (Danny, 2026-11-01)
+
+The cue is a continuous buzz of about 0.6 s that swells in strength ("우우웅"), not a single tap, so it can be noticed with the phone on a table. INTENTIONAL.md and SPEC Goal 3 say this now. The Pass 0 probe already plays it (a2d4d03), to be tuned on the phone.
+
+## M7. Mark a cue inaccurate (AC13, INTENTIONAL.md section 4)
+
+The cue card gets dismiss and mark-inaccurate controls. A mark is stored on the phone with the phrase transcript, so wrong cues from misheard words can be counted in real use. Danny's next question is word-level accuracy, and this control is how real use answers it.
+
 ## Deferred from the teardown
 
 These are not in Pass 1:
