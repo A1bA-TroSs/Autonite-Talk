@@ -62,13 +62,16 @@ public enum WordChoiceReader {
     public static let koreanHarsh = [
         "바보", "멍청", "닥쳐", "꺼져", "미쳤", "한심", "쓸모없", "짜증나", "씨발", "시발", "병신", "젠장",
         "개같", "어이없", "됐거든", "알아서 해", "시끄러", "너는 맨날", "넌 맨날", "또 그러",
+        "개새끼", "새끼", "존나", "졸라", "지랄", "씨바", "씨팔", "시팔", "씨빨", "좆", "미친", "엿 먹",
     ]
+    /// Ordinary words that contain a listed stem, removed before matching.
+    static let koreanInnocent = ["시발점", "시발역", "새끼손가락", "새끼발가락"]
 
     /// The harsh words found in the phrase.
     public static func harshWords(in phrase: String) -> [String] {
         let english = EnglishRegisterReader.normalized(phrase)
         return englishHarsh.filter { EnglishRegisterReader.contains(english, $0) }
-            + koreanHarsh.filter { phrase.contains($0) }
+            + koreanHarsh.filter { koreanInnocent.reduce(phrase) { $0.replacingOccurrences(of: $1, with: " ") }.contains($0) }
     }
 
     public static func read(_ phrase: String, setting: WordChoiceSetting) -> Reading {

@@ -11,21 +11,60 @@ enum Palette {
     static let liveText = Color(red: 0xF3 / 255, green: 0xF1 / 255, blue: 0xE7 / 255)
     static let liveMuted = Color(red: 0xCC / 255, green: 0xD2 / 255, blue: 0xC5 / 255)
     static let amber = Color(red: 0.95, green: 0.69, blue: 0.25)
+    static let recordingDot = Color(red: 0.55, green: 0.85, blue: 0.30)
+    static let stop = Color(red: 0.72, green: 0.25, blue: 0.27)
+    static let segment = Color(red: 0x4A / 255, green: 0x62 / 255, blue: 0x50 / 255)
 }
 
 struct Pass1RootView: View {
     @Bindable var model: Pass1Model
+    @State private var showingLab = false
 
     var body: some View {
         ZStack {
             Palette.liveBackground.ignoresSafeArea()
-            switch model.route {
-            case .onboarding: OnboardingView(model: model)
-            case .setup: SessionSetupView(model: model)
-            case .live: LiveView(model: model)
+            VStack(spacing: 0) {
+                AppHeader(subtitle: model.copy(.appSubtitle)) { showingLab = true }
+                switch model.route {
+                case .onboarding: OnboardingView(model: model)
+                case .setup: SessionSetupView(model: model)
+                case .live: LiveView(model: model)
+                }
             }
         }
         .foregroundStyle(Palette.liveText)
+        .preferredColorScheme(.dark)
+        .sheet(isPresented: $showingLab) {
+            NavigationStack {
+                FeasibilityView(model: model.lab)
+                    .navigationTitle(model.copy(.labTitle))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { Button(model.copy(.close)) { showingLab = false } }
+            }
+        }
+    }
+}
+
+/// "Autunite" title, subtitle and the settings gear, as in the UI reference.
+private struct AppHeader: View {
+    let subtitle: String
+    let openSettings: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Autunite").font(.system(size: 30, weight: .semibold))
+                Text(subtitle).font(.subheadline).foregroundStyle(Palette.liveMuted)
+            }
+            Spacer()
+            Button(action: openSettings) {
+                Image(systemName: "gearshape").font(.title2)
+            }
+            .accessibilityLabel("Settings")
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
     }
 }
 
@@ -221,143 +260,280 @@ struct LiveView: View {
     @Bindable var model: Pass1Model
 
     var body: some View {
-        VStack(spacing: 0) {
-            // The single recording indicator (DESIGN.md).
-            if model.lab.isRecording {
-                RecordingStrip(startedAt: model.lab.startedAt, levelDB: model.lab.levelDB, interrupted: model.lab.state == .interrupted)
-            }
-            ScrollView {
-                VStack(spacing: 20) {
-                    MeterView(needle: model.screen.needle, label: centerLabel, detail: centerDetail)
-                        .frame(width: 280, height: 280)
-                        .onTapGesture { model.screen.openCue() }
-                        .accessibilityAddTraits(.isButton)
-                    if case .cueOpen(let cue) = model.screen.phase {
-                        CueCard(cue: cue, model: model)
-                    } else if case .cueWaiting = model.screen.phase {
-                        Button(model.copy(.cueAvailable)) { model.screen.openCue() }
-                            .foregroundStyle(Palette.amber)
-                    }
-                    notMeasured
-                    if !model.setup.intentionText.isEmpty {
-                        Text(model.setup.intentionText)
-                            .font(.footnote)
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Palette.liveSurface, in: RoundedRectangle(cornerRadius: 14))
-                    }
-                    if model.screen.phase == .stopped {
-                        Text(model.copy(.sessionStopped)).font(.headline)
-                        PrimaryButton(title: model.copy(.setupTitle)) { model.backToSetup() }
-                    } else {
-                        PrimaryButton(title: model.copy(.endSession)) { Task { await model.endSession() } }
-                    }
+        ZStack(alignment: .bottom) {
+            VStack(spacing: 16) {
+                // The single recording indicator (DESIGN.md).
+                LiveRecordingStrip(model: model)
+                MeterView(needle: model.screen.needle, label: centerLabel, detail: centerDetail, cue: isCue)
+                    .frame(width: 300, height: 300)
+                    .contentShape(Circle())
+                    .onTapGesture { model.screen.openCue() }
+                    .accessibilityAddTraits(.isButton)
+                if model.voiceCheckOff {
+                    Text(model.copy(.voiceCheckOff))
+                        .font(.footnote)
+                        .foregroundStyle(Palette.amber)
+                        .multilineTextAlignment(.center)
                 }
-                .padding(16)
+                LastHeardRow(model: model)
+                Spacer(minLength: 0)
+                IntentionRow(model: model)
+                if model.screen.phase == .stopped {
+                    PrimaryButton(title: model.copy(.setupTitle)) { model.backToSetup() }
+                } else {
+                    EndSessionButton(title: model.copy(.endSession)) { Task { await model.endSession() } }
+                }
             }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
+            if case .cueOpen(let cue) = model.screen.phase {
+                CueCard(cue: cue, model: model)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.25), value: model.screen.phase)
+    }
+
+    private var isCue: Bool {
+        switch model.screen.phase {
+        case .cueWaiting, .cueOpen: true
+        default: false
         }
     }
 
     private var centerLabel: String {
-        model.screen.phase == .stopped ? model.copy(.sessionStopped) : model.copy(.listening)
+        if model.screen.phase == .stopped { return model.copy(.sessionStopped) }
+        return isCue ? model.copy(.checkAlignmentTitle) : model.copy(.listening)
     }
 
     private var centerDetail: String {
-        model.screen.phase == .stopped ? "" : model.copy(.listeningDetail)
-    }
-
-    private var notMeasured: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(model.copy(.notMeasuredTitle)).font(.caption.weight(.semibold))
-            ForEach([CopyKey.categorySarcasm, .categoryManner, .categoryVoiceTone], id: \.self) { key in
-                HStack {
-                    Text(model.copy(key))
-                    Spacer()
-                    Text(model.copy(.notMeasured))
-                }
-                .font(.caption)
-            }
-        }
-        .foregroundStyle(Palette.liveMuted)
-        .padding(12)
-        .background(Palette.liveSurface, in: RoundedRectangle(cornerRadius: 14))
+        if model.screen.phase == .stopped { return "" }
+        return isCue ? model.copy(.checkAlignmentDetail) : model.copy(.listeningDetail)
     }
 }
 
+/// Rounded strip: green dot, "Recording", a compact waveform from recent levels, elapsed time.
+private struct LiveRecordingStrip: View {
+    let model: Pass1Model
+    @State private var levels: [Double] = Array(repeating: 0, count: 28)
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(model.lab.state == .interrupted ? Palette.amber : Palette.recordingDot)
+                .frame(width: 12, height: 12)
+            Text(model.lab.isRecording ? model.copy(.recording) : model.copy(.sessionStopped))
+                .font(.subheadline)
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(levels.indices, id: \.self) { i in
+                    Capsule()
+                        .fill(Palette.primary.opacity(0.35 + 0.65 * levels[i]))
+                        .frame(width: 2, height: 4 + 22 * levels[i])
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: 28)
+            if let startedAt = model.lab.startedAt, model.lab.isRecording {
+                Text(startedAt, style: .timer)
+                    .font(.subheadline.monospacedDigit())
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 48)
+        .background(Palette.liveSurface.opacity(0.8), in: Capsule())
+        .overlay(Capsule().stroke(Palette.liveMuted.opacity(0.12)))
+        .onChange(of: model.lab.levelDB) { _, db in
+            levels.removeFirst()
+            levels.append(min(max((db + 60) / 60, 0), 1))
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// What the app heard last and what it did with it, so a missing cue can be explained.
+private struct LastHeardRow: View {
+    let model: Pass1Model
+
+    var body: some View {
+        if let heard = model.lastHeard {
+            VStack(spacing: 4) {
+                Text("\(model.copy(.lastHeard)): “\(heard)”")
+                    .lineLimit(2)
+                if let result = model.lastResult {
+                    Text(model.copy(result))
+                        .foregroundStyle(result == .resultCue ? Palette.amber : Palette.liveMuted)
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(Palette.liveMuted)
+            .multilineTextAlignment(.center)
+        }
+    }
+}
+
+private struct IntentionRow: View {
+    let model: Pass1Model
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "scope").font(.title2).foregroundStyle(Palette.primary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.copy(.intentionCaption)).font(.subheadline).foregroundStyle(Palette.liveMuted)
+                Text(intention).font(.headline).lineLimit(1)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").foregroundStyle(Palette.liveMuted)
+        }
+        .padding(16)
+        .background(Palette.liveSurface.opacity(0.6), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Palette.liveMuted.opacity(0.15)))
+    }
+
+    private var intention: String {
+        let text = model.setup.intentionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { return text }
+        let settings = model.setup.confirmed
+        return "\(model.copy(registerKey(settings.register))) · \(model.copy(wordKey(settings.wordChoice)))"
+    }
+}
+
+private struct EndSessionButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 3).frame(width: 18, height: 18)
+                Text(title).font(.title3.weight(.medium))
+            }
+            .frame(maxWidth: .infinity, minHeight: 62)
+            .background(Palette.stop, in: RoundedRectangle(cornerRadius: 18))
+            .foregroundStyle(.white)
+        }
+    }
+}
+
+/// The cue sheet: exact wording (amber bar), possible reading, why it matters here, one next
+/// sentence, and controls to dismiss or mark the cue wrong (DESIGN.md order).
 struct CueCard: View {
     let cue: Cue
     let model: Pass1Model
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            row(.cueYourWording, "“\(cue.phrase)”")
-            row(.cuePossibleReading, cue.possibleReading)
-            row(.cueWhyHere, cue.whyHere)
-            row(.cueTryNext, cue.tryNext)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 14) {
+                Capsule().fill(Palette.amber).frame(width: 4)
+                VStack(alignment: .leading, spacing: 6) {
+                    caption(.cueYourWording)
+                    Text("“\(cue.phrase)”").font(.title3.weight(.medium))
+                }
+                Spacer()
+                Menu {
+                    Button(model.copy(.cueMarkInaccurate)) { model.markInaccurate() }
+                    Button(model.copy(.cueDismiss)) { model.screen.dismissCue() }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 34, height: 34)
+                        .background(Palette.liveMuted.opacity(0.15), in: Circle())
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.bottom, 16)
+            Divider().overlay(Palette.liveMuted.opacity(0.2))
+            row("bubble.left", .cuePossibleReading, cue.possibleReading)
+            Divider().overlay(Palette.liveMuted.opacity(0.2))
+            row("scope", .cueWhyHere, cue.whyHere)
+            Divider().overlay(Palette.liveMuted.opacity(0.2))
+            row("arrow.right", .cueTryNext, "“\(cue.tryNext)”")
             HStack {
                 Button(model.copy(.cueDismiss)) { model.screen.dismissCue() }
-                    .buttonStyle(.bordered)
                 Spacer()
                 Button(model.copy(.cueMarkInaccurate)) { model.markInaccurate() }
-                    .buttonStyle(.bordered)
+                    .foregroundStyle(Palette.amber)
             }
+            .font(.subheadline.weight(.medium))
+            .padding(.top, 14)
         }
-        .padding(16)
-        .background(Palette.liveSurface, in: RoundedRectangle(cornerRadius: 16))
+        .padding(22)
+        .background(Palette.liveSurface, in: UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28))
+        .overlay(UnevenRoundedRectangle(topLeadingRadius: 28, topTrailingRadius: 28).stroke(Palette.liveMuted.opacity(0.15)))
+        .ignoresSafeArea(edges: .bottom)
     }
 
-    private func row(_ title: CopyKey, _ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(model.copy(title)).font(.caption.weight(.semibold)).foregroundStyle(Palette.liveMuted)
-            Text(text)
+    private func caption(_ key: CopyKey) -> some View {
+        Text(model.copy(key).uppercased()).font(.caption).tracking(1).foregroundStyle(Palette.liveMuted)
+    }
+
+    private func row(_ icon: String, _ title: CopyKey, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: icon).font(.title3).frame(width: 26)
+            VStack(alignment: .leading, spacing: 6) {
+                caption(title)
+                Text(text).font(.body)
+            }
+            Spacer(minLength: 0)
         }
+        .padding(.vertical, 14)
     }
 }
 
-/// The round meter: ring segments all round, fine ticks only on the reachable upper arc.
+/// The round meter: thick ring segments all round, fine ticks only on the reachable upper arc,
+/// a slim needle that rests straight up and swings to amber on a cue.
 struct MeterView: View {
     let needle: Double
     let label: String
     let detail: String
+    var cue = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { proxy in
             let size = min(proxy.size.width, proxy.size.height)
             let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-            let radius = size / 2 - 8
+            let ring = size * 0.085
+            let radius = size / 2 - size * 0.09
+            let span = 360 / Double(MeterGeometry.segmentCount)
+            let active = MeterGeometry.segment(containing: MeterGeometry.needleAngle(needle))
             ZStack {
-                Circle().fill(Palette.liveSurface)
                 ForEach(MeterGeometry.segmentAngles(), id: \.self) { start in
-                    let span = 360 / Double(MeterGeometry.segmentCount)
                     Path { path in
-                        path.addArc(center: center, radius: radius, startAngle: .degrees(start + 1), endAngle: .degrees(start + span - 1), clockwise: false)
+                        path.addArc(center: center, radius: radius, startAngle: .degrees(start + 3), endAngle: .degrees(start + span - 3), clockwise: false)
                     }
-                    .stroke(MeterGeometry.isAmber(start + span / 2) ? Palette.amber.opacity(0.8) : Palette.liveMuted.opacity(0.35), lineWidth: 6)
+                    .stroke(color(for: start, active: active), style: StrokeStyle(lineWidth: ring, lineCap: .round))
                 }
                 ForEach(MeterGeometry.tickAngles(), id: \.self) { angle in
+                    let major = Int((angle - MeterGeometry.tickRange.lowerBound).rounded()) % 35 == 0
                     Path { path in
-                        path.move(to: point(center, radius - 12, angle))
-                        path.addLine(to: point(center, radius - 22, angle))
+                        path.move(to: point(center, radius + ring / 2 + 6, angle))
+                        path.addLine(to: point(center, radius + ring / 2 + (major ? 16 : 11), angle))
                     }
-                    .stroke(Palette.liveMuted, lineWidth: 1.5)
+                    .stroke(MeterGeometry.isAmber(angle) && cue ? Palette.amber : Palette.liveMuted.opacity(major ? 0.9 : 0.55), lineWidth: major ? 2 : 1)
                 }
                 Path { path in
                     path.move(to: center)
-                    path.addLine(to: point(center, radius - 28, MeterGeometry.needleAngle(needle)))
+                    path.addLine(to: point(center, radius + ring / 2, MeterGeometry.needleAngle(needle)))
                 }
-                .stroke(needle > 0.5 ? Palette.amber : Palette.primary, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .stroke(Palette.liveText, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.4), value: needle)
-                VStack(spacing: 4) {
-                    Text(label).font(.title3.weight(.semibold))
-                    Text(detail).font(.caption).foregroundStyle(Palette.liveMuted).multilineTextAlignment(.center)
+                Circle()
+                    .fill(Palette.liveText)
+                    .frame(width: 10, height: 10)
+                    .position(center)
+                VStack(spacing: 8) {
+                    Text(label).font(.title2.weight(.semibold))
+                    Text(detail).font(.subheadline).foregroundStyle(Palette.liveMuted).multilineTextAlignment(.center)
                 }
-                .frame(width: size * 0.55)
-                .offset(y: size * 0.12)
+                .frame(width: size * 0.6)
+                .position(x: center.x, y: center.y + size * 0.2)
             }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(label)
+    }
+
+    private func color(for start: Double, active: Double?) -> Color {
+        guard start == active else { return Palette.segment.opacity(0.75) }
+        return needle > 0.5 ? Palette.amber : Palette.primary
     }
 
     private func point(_ center: CGPoint, _ r: CGFloat, _ degrees: Double) -> CGPoint {

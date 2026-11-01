@@ -172,14 +172,43 @@ public enum VoiceVerifier {
 
     /// Relabels a `user` piece as `unknown` when it is too short to verify, or its similarity
     /// is missing or below the threshold.
-    public static func verify(_ piece: VoicePiece, similarity: Double?) -> VoicePiece {
+    ///
+    /// `evidence` is the span the similarity was measured over (see `evidenceWindow`); it defaults
+    /// to the piece itself.
+    public static func verify(_ piece: VoicePiece, similarity: Double?, evidence: ClosedRange<Double>? = nil) -> VoicePiece {
         guard piece.label == .user else { return piece }
-        if piece.duration >= minimumSeconds, let similarity, similarity >= threshold { return piece }
+        let seconds = evidence.map { $0.upperBound - $0.lowerBound } ?? piece.duration
+        if seconds >= minimumSeconds, let similarity, similarity >= threshold { return piece }
         return VoicePiece(
             text: piece.text, start: piece.start, end: piece.end, slot: piece.slot,
             label: .unknown, confidence: 0, overlapped: piece.overlapped
         )
     }
+
+    /// The span to measure a `user` piece's voiceprint over. A piece of at least `minimumSeconds`
+    /// is measured on its own. A shorter one (a lone word such as a swear) is measured over the
+    /// user slot's continuous speech around it, so long as no other slot talks anywhere in that
+    /// span; otherwise it stays the piece alone, and `verify` then holds it back as too short.
+    public static func evidenceWindow(for piece: VoicePiece, turns: [SpeakerTurn], userSlot: Int?) -> ClosedRange<Double> {
+        let own = piece.start...max(piece.start, piece.end)
+        guard piece.label == .user, piece.duration < minimumSeconds, let userSlot else { return own }
+        let mine = turns.filter { $0.slot == userSlot }.sorted { $0.start < $1.start }
+        guard var window = mine.first(where: { $0.start <= piece.end && $0.end >= piece.start }).map({ $0.start...$0.end }) else { return own }
+        // Join the user's turns that touch this one (gaps under `joinGap`).
+        var grew = true
+        while grew {
+            grew = false
+            for turn in mine where turn.end >= window.lowerBound - joinGap && turn.start <= window.upperBound + joinGap {
+                let joined = min(window.lowerBound, turn.start)...max(window.upperBound, turn.end)
+                if joined != window { window = joined; grew = true }
+            }
+        }
+        let others = turns.contains { $0.slot != userSlot && $0.start < window.upperBound && $0.end > window.lowerBound }
+        return others ? own : min(window.lowerBound, own.lowerBound)...max(window.upperBound, own.upperBound)
+    }
+
+    /// User turns closer than this count as one stretch of speech.
+    public static let joinGap = 0.3
 
     public static func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Double? {
         guard a.count == b.count, !a.isEmpty else { return nil }

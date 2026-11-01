@@ -26,6 +26,10 @@ public enum CopyKey: String, CaseIterable, Sendable {
     case whyRegisterPolite, whyWordChoiceGentle
     case nextRegisterFallback, nextWordChoice
     case sessionStopped
+    // Live screen frame (UI reference) and what the last phrase did
+    case appSubtitle, recording, intentionCaption, intentionNone, checkAlignmentTitle, checkAlignmentDetail
+    case lastHeard, resultCue, resultAligned, quietUnsure, quietOther, quietOverlap, quietVoice, quietNoWords, voiceCheckOff
+    case labTitle, close
 }
 
 public enum Copy {
@@ -109,6 +113,23 @@ public enum Copy {
         .nextRegisterFallback: "Could I put that another way?",
         .nextWordChoice: "Let me say that more carefully: I see it a bit differently.",
         .sessionStopped: "Session ended",
+        .appSubtitle: "In-person conversation coach",
+        .recording: "Recording",
+        .intentionCaption: "Conversation intention",
+        .intentionNone: "Not set",
+        .checkAlignmentTitle: "Check alignment",
+        .checkAlignmentDetail: "This may not match your intention.",
+        .lastHeard: "Last heard",
+        .resultCue: "Cue given",
+        .resultAligned: "Fits your settings",
+        .quietUnsure: "No cue: not sure it was your voice",
+        .quietOther: "No cue: sounded like the other person",
+        .quietOverlap: "No cue: two voices overlapped",
+        .quietVoice: "No cue: didn't match your saved voice",
+        .quietNoWords: "No cue: no words heard",
+        .voiceCheckOff: "Voice check isn't running, so no cues can be given. End the session and start again.",
+        .labTitle: "Lab",
+        .close: "Close",
     ]
 
     public static let korean: [CopyKey: String] = [
@@ -181,5 +202,22 @@ public enum Copy {
         .nextRegisterFallback: "제가 다시 말씀드려 볼게요.",
         .nextWordChoice: "제 말이 좀 세게 들렸다면, 다시 말해 볼게요. 저는 조금 다르게 생각해요.",
         .sessionStopped: "대화가 끝났어요",
+        .appSubtitle: "대면 대화 코치",
+        .recording: "녹음 중",
+        .intentionCaption: "대화 의도",
+        .intentionNone: "설정 안 함",
+        .checkAlignmentTitle: "말투 확인",
+        .checkAlignmentDetail: "의도와 조금 다를 수 있어요.",
+        .lastHeard: "마지막으로 들은 말",
+        .resultCue: "신호를 보냈어요",
+        .resultAligned: "설정과 맞아요",
+        .quietUnsure: "신호 없음: 내 목소리인지 확실하지 않아요",
+        .quietOther: "신호 없음: 상대방 목소리로 들렸어요",
+        .quietOverlap: "신호 없음: 목소리가 겹쳤어요",
+        .quietVoice: "신호 없음: 저장된 내 목소리와 달랐어요",
+        .quietNoWords: "신호 없음: 들린 말이 없어요",
+        .voiceCheckOff: "목소리 확인이 꺼져 있어서 신호를 보낼 수 없어요. 대화를 끝내고 다시 시작해 주세요.",
+        .labTitle: "실험실",
+        .close: "닫기",
     ]
 }

@@ -295,8 +295,9 @@ final class FeasibilityModel {
             let pieces = VoiceSplitter.smooth(VoiceSplitter.split(words: words, turns: snapshot.turns, userSlot: snapshot.userSlot))
             for split in pieces {
                 // Only slot-Me speech is checked against the enrolled voice; the rest can't be called Me anyway.
-                let match = split.label == .user ? voice.voiceMatch(start: split.start, end: split.end) : nil
-                let piece = VoiceVerifier.verify(split, similarity: match)
+                let evidence = VoiceVerifier.evidenceWindow(for: split, turns: snapshot.turns, userSlot: snapshot.userSlot)
+                let match = split.label == .user ? voice.voiceMatch(start: evidence.lowerBound, end: evidence.upperBound) : nil
+                let piece = VoiceVerifier.verify(split, similarity: match, evidence: evidence)
                 utterances.append(Utterance(
                     start: piece.start, end: piece.end, text: piece.text, latency: line.latency,
                     meanLevelDB: engine?.levels.meanDB(from: piece.start, to: piece.end),

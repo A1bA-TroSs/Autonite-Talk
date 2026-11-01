@@ -134,31 +134,45 @@ public struct LiveScreen: Equatable, Sendable {
     }
 }
 
-/// Geometry for the round meter (DESIGN.md): ring segments all the way round, fine ticks only on
-/// the upper arc the needle can reach. Angles are in degrees, 0 = east, increasing clockwise as on
-/// screen, so the upper half is 180...360.
+/// Geometry for the round meter (DESIGN.md and the UI reference): thick ring segments all the
+/// way round, fine ticks only on the upper arc. Angles are in degrees, 0 = east, increasing
+/// clockwise as on screen, so the upper half is 180...360. The needle rests pointing straight up
+/// and swings right toward amber on a cue.
 public enum MeterGeometry {
-    /// The needle sweeps from rest at the left of the upper arc to amber at the right.
-    public static let needleRange = 200.0...340.0
-    public static let segmentCount = 24
+    /// The upper arc that carries ticks.
+    public static let tickRange = 200.0...340.0
+    /// The needle sweeps from rest (straight up) to the amber zone on the right.
+    public static let needleRange = 270.0...325.0
+    public static let segmentCount = 10
 
     public static func needleAngle(_ position: Double) -> Double {
         needleRange.lowerBound + (needleRange.upperBound - needleRange.lowerBound) * min(max(position, 0), 1)
     }
 
-    public static func tickAngles(count: Int = 15) -> [Double] {
-        guard count > 1 else { return [needleRange.lowerBound] }
-        let step = (needleRange.upperBound - needleRange.lowerBound) / Double(count - 1)
-        return (0..<count).map { needleRange.lowerBound + Double($0) * step }
+    public static func tickAngles(count: Int = 29) -> [Double] {
+        guard count > 1 else { return [tickRange.lowerBound] }
+        let step = (tickRange.upperBound - tickRange.lowerBound) / Double(count - 1)
+        return (0..<count).map { tickRange.lowerBound + Double($0) * step }
     }
 
     /// Start angles of the ring segments around the whole circle, including the lower arc.
+    /// Offset so one segment is centred straight up, under the resting needle.
     public static func segmentAngles() -> [Double] {
-        (0..<segmentCount).map { Double($0) * 360 / Double(segmentCount) }
+        let span = 360 / Double(segmentCount)
+        return (0..<segmentCount).map { (270 - span / 2 + Double($0) * span).truncatingRemainder(dividingBy: 360) }
     }
 
-    /// The last fifth of the sweep is amber.
+    /// The segment the needle points into, by start angle.
+    public static func segment(containing angle: Double) -> Double? {
+        let span = 360 / Double(segmentCount)
+        return segmentAngles().first { start in
+            let offset = (angle - start + 360).truncatingRemainder(dividingBy: 360)
+            return offset < span
+        }
+    }
+
+    /// The right end of the reachable arc is amber.
     public static func isAmber(_ angle: Double) -> Bool {
-        angle >= needleAngle(0.8) && angle <= needleRange.upperBound
+        angle >= 305 && angle <= tickRange.upperBound
     }
 }

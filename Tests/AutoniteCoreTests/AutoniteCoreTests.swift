@@ -143,6 +143,34 @@ private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
     #expect(smoothed[0].confidence == 0)
 }
 
+@Test func shortUserWordIsVerifiedOverItsSurroundingTurn() {
+    let swear = VoicePiece(text: "씨발", start: 3.0, end: 3.5, slot: 0, label: .user, confidence: 1, overlapped: false)
+    // Alone in a short turn: too little audio, so it stays the piece and is held back.
+    let lone = VoiceVerifier.evidenceWindow(for: swear, turns: [SpeakerTurn(slot: 0, start: 2.9, end: 3.6)], userSlot: 0)
+    #expect(VoiceVerifier.verify(swear, similarity: 0.9, evidence: lone).label == .unknown)
+    // Inside the user's own longer speech (two touching turns): measured over all of it.
+    let turns = [SpeakerTurn(slot: 0, start: 1.0, end: 3.2), SpeakerTurn(slot: 0, start: 3.3, end: 4.0)]
+    let window = VoiceVerifier.evidenceWindow(for: swear, turns: turns, userSlot: 0)
+    #expect(window == 1.0...4.0)
+    #expect(VoiceVerifier.verify(swear, similarity: 0.8, evidence: window).label == .user)
+    #expect(VoiceVerifier.verify(swear, similarity: 0.5, evidence: window).label == .unknown)
+    // Anyone else talking in that stretch keeps the window to the piece alone.
+    let crowded = turns + [SpeakerTurn(slot: 1, start: 1.5, end: 2.0)]
+    #expect(VoiceVerifier.evidenceWindow(for: swear, turns: crowded, userSlot: 0) == 3.0...3.5)
+    // Other speakers' pieces are never widened.
+    let theirs = VoicePiece(text: "x", start: 3.0, end: 3.5, slot: 1, label: .other, confidence: 1, overlapped: false)
+    #expect(VoiceVerifier.evidenceWindow(for: theirs, turns: turns, userSlot: 0) == 3.0...3.5)
+}
+
+@Test func koreanSwearsAreReadAndInnocentWordsAreNot() {
+    for phrase in ["아 씨발 진짜", "존나 짜증나네", "이 새끼가", "지랄하지 마", "미친 거 아니야?", "씨팔"] {
+        #expect(WordChoiceReader.read(phrase, setting: .gentle) == .check, "\(phrase)")
+    }
+    for phrase in ["여기가 시발점이에요.", "새끼손가락을 다쳤어요."] {
+        #expect(WordChoiceReader.read(phrase, setting: .gentle) == .aligned, "\(phrase)")
+    }
+}
+
 @Test func verifierDropsUserPiecesThatDoNotMatchTheEnrolledVoice() {
     let piece = VoicePiece(text: "x", start: 0, end: 2, slot: 0, label: .user, confidence: 1, overlapped: false)
     #expect(VoiceVerifier.verify(piece, similarity: 0.8).label == .user)
@@ -515,10 +543,12 @@ private final class FakeEnroller: SpeakerEnrolling {
     for angle in ticks {
         // Upper half on screen is 180...360 degrees; every tick is on the reachable arc.
         #expect(angle >= 180 && angle <= 360)
-        #expect(MeterGeometry.needleRange.contains(angle))
+        #expect(MeterGeometry.tickRange.contains(angle))
     }
-    #expect(MeterGeometry.needleAngle(0) == ticks.first)
-    #expect(MeterGeometry.needleAngle(1) == ticks.last)
+    // The needle rests straight up and stays on the ticked arc.
+    #expect(MeterGeometry.needleAngle(0) == 270)
+    #expect(MeterGeometry.tickRange.contains(MeterGeometry.needleAngle(1)))
+    #expect(MeterGeometry.segment(containing: 270) != nil)
     // Ring segments still go all the way round, keeping the circle.
     #expect(MeterGeometry.segmentAngles().contains { $0 > 0 && $0 < 180 })
     #expect(MeterGeometry.isAmber(MeterGeometry.needleAngle(1)))

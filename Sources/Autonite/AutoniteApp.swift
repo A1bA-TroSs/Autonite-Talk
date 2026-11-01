@@ -14,13 +14,8 @@ struct AutoniteApp: App {
 
     var body: some Scene {
         WindowGroup {
-            TabView {
-                Pass1RootView(model: pass1)
-                    .tabItem { Label("Autunite", systemImage: "waveform.circle") }
-                // The Pass 0 harness stays available for evidence runs.
-                FeasibilityView(model: lab)
-                    .tabItem { Label("Lab", systemImage: "testtube.2") }
-            }
+            // The Pass 0 harness (Lab) opens from the gear on the Autunite header, for evidence runs.
+            Pass1RootView(model: pass1)
             .task {
                 if SelfTest.isRequested { await SelfTest.run(lab) }
             }

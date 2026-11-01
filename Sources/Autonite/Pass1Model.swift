@@ -22,6 +22,10 @@ final class Pass1Model {
     var isRecordingClip = false
     var checkPhrase = ""
     var message: String?
+    /// The last phrase the session heard and what it did with it, so real use shows why a cue
+    /// did or didn't fire.
+    var lastHeard: String?
+    var lastResult: CopyKey?
 
     private let haptics = HapticProbe()
     private let store: VoiceProfileStore?
@@ -43,6 +47,9 @@ final class Pass1Model {
     func copy(_ key: CopyKey) -> String { Copy.text(key, language) }
 
     var hasProfile: Bool { lab.profile != nil }
+
+    /// The session fell back to level attribution, which never reads the user's words.
+    var voiceCheckOff: Bool { lab.isRecording && lab.sessionMethod != .voice }
 
     // MARK: Onboarding
 
@@ -125,6 +132,8 @@ final class Pass1Model {
     func startSession() async {
         if lab.voiceStatus != .ready { await lab.loadVoiceModel() }
         lab.language = language
+        lastHeard = nil
+        lastResult = nil
         screen.start()
         route = .live
         await lab.start()
@@ -154,6 +163,11 @@ final class Pass1Model {
 
     private func receive(_ utterance: Utterance) {
         let outcome = ReadingPipeline.evaluate(utterance, language: language, settings: setup.confirmed)
+        lastHeard = utterance.text
+        switch outcome {
+        case .quiet(let reason): lastResult = Self.quietKey(reason)
+        case .read(_, let cue): lastResult = cue ? .resultCue : .resultAligned
+        }
         guard screen.receive(outcome, phrase: utterance.text, language: language) else { return }
         haptics.pulse()
         needleTask?.cancel()
@@ -161,6 +175,14 @@ final class Pass1Model {
             try? await Task.sleep(for: .seconds(1.5))
             self?.screen.settleNeedle()
         }
+    }
+
+    private static func quietKey(_ reason: String) -> CopyKey {
+        if reason.contains("other") { return .quietOther }
+        if reason.contains("overlap") { return .quietOverlap }
+        if reason.contains("does not match") { return .quietVoice }
+        if reason.contains("no words") { return .quietNoWords }
+        return .quietUnsure
     }
 }
 #endif
