@@ -2,3 +2,4 @@ version: 1
 bundleID: com.a1batross.autonite
 product: Autonite
 infoPath: Info.plist
+iconPath: Resources/AppIcon.png
