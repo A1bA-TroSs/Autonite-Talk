@@ -155,3 +155,45 @@ private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
     #expect(VoiceVerifier.cosineSimilarity([1, 0], [1, 0]) == 1)
     #expect(VoiceVerifier.cosineSimilarity([1, 0], [0, 1]) == 0)
 }
+
+// MARK: Pass 1 P1: enrolment
+
+@Test func enrollmentScriptsHaveRequiredRegisterSplit() {
+    #expect(EnrollmentScript.english.count == 8)
+    #expect(EnrollmentScript.korean.count == 8)
+    let polite = EnrollmentScript.korean.map(EnrollmentScript.endsPolite)
+    #expect(polite == [true, true, true, true, false, false, false, false])
+}
+
+@Test func enrollmentFlowRequiresConsentAndRecovery() {
+    // Declining consent never reaches done, whatever else is tapped.
+    var declined = EnrollmentFlow()
+    declined.answerConsent(false)
+    declined.confirmPlacement()
+    declined.finishSentence()
+    declined.finishPhraseCheck(passed: true)
+    declined.finishBaseline()
+    #expect(declined.step == .declined)
+
+    var flow = EnrollmentFlow()
+    flow.confirmPlacement()
+    #expect(flow.step == .consent)
+    flow.answerConsent(true)
+    flow.confirmPlacement()
+    for _ in 0..<8 { flow.finishSentence() }
+    #expect(flow.step == .freeSpeech)
+    #expect(!flow.finishFreeSpeech(seconds: 12))
+    #expect(flow.finishFreeSpeech(seconds: 25))
+    // A failed check asks for two more sentences, then checks again.
+    flow.finishPhraseCheck(passed: false)
+    #expect(flow.step == .extraSentence(0))
+    flow.finishSentence()
+    flow.finishSentence()
+    #expect(flow.step == .phraseCheck)
+    flow.finishPhraseCheck(passed: true)
+    flow.finishBaseline()
+    #expect(flow.step == .done)
+
+    flow.withdrawConsent()
+    #expect(flow.step == .declined)
+}

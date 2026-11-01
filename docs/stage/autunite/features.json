@@ -3,13 +3,13 @@
     "id": "F1",
     "phase": "P1",
     "criterion": "AC1 Enrollment script: 8 Korean (4 polite, 4 not) and 8 English sentences ship",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F2",
     "phase": "P1",
     "criterion": "AC2 Enrollment flow state machine; no path to done without consent; retry after a failed check",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F3",
