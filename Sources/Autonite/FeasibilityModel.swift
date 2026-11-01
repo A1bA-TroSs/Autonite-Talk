@@ -37,7 +37,11 @@ final class FeasibilityModel {
     var isEnrolling = false
     /// The enrolment clip, in memory only for this app run. Never written to disk.
     private var enrollment: (samples: [Float], sampleRate: Double)?
-    var isEnrolled: Bool { enrollment != nil }
+    var isEnrolled: Bool { enrollment != nil || profile != nil }
+    /// Pass 1: the saved voice profile. When set, sessions enrol from it instead of the in-memory clip.
+    var profile: VoiceProfile?
+    /// Pass 1: called with each attributed piece of a voice session, in order.
+    var onVoiceUtterance: ((Utterance) -> Void)?
     /// Voice attribution is used when the model is loaded and a voice is enrolled; otherwise level.
     var method: AttributionMethod { voiceStatus == .ready && isEnrolled ? .voice : .level }
     private(set) var sessionMethod: AttributionMethod = .level
@@ -102,9 +106,17 @@ final class FeasibilityModel {
         sessionMethod = method
         let engine = LiveTranscriptionEngine()
         self.engine = engine
-        if sessionMethod == .voice, let enrollment {
+        if sessionMethod == .voice {
             do {
-                if try voice.beginSession(enrollment: enrollment.samples, sampleRate: enrollment.sampleRate) == nil {
+                let slot: Int?
+                if let profile {
+                    slot = try voice.enroll(profile)
+                } else if let enrollment {
+                    slot = try voice.beginSession(enrollment: enrollment.samples, sampleRate: enrollment.sampleRate)
+                } else {
+                    slot = nil
+                }
+                if slot == nil {
                     failures.append("Enrolment found no speech; using level attribution")
                     sessionMethod = .level
                 }
@@ -292,8 +304,19 @@ final class FeasibilityModel {
                     voiceSlot: piece.slot, overlapped: piece.overlapped, attributionDelay: delay,
                     voiceMatch: match
                 ))
+                if let latest = utterances.last { onVoiceUtterance?(latest) }
             }
         }
+    }
+
+    // MARK: Pass 1 voice profile
+
+    func makeProfile(reading: [Float], freeSpeech: [Float], sampleRate: Double) throws -> VoiceProfile {
+        try voice.makeProfile(reading: reading, freeSpeech: freeSpeech, sampleRate: sampleRate)
+    }
+
+    func similarity(of samples: [Float], sampleRate: Double, to voiceprint: [Float]) throws -> Double? {
+        try voice.similarity(of: samples, sampleRate: sampleRate, to: voiceprint)
     }
 
     // MARK: Haptics

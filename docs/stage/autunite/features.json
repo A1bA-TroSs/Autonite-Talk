@@ -57,13 +57,13 @@
     "id": "F10",
     "phase": "P8",
     "criterion": "AC10 App builds and Simulator self-test reaches its sentinel",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F11",
     "phase": "P7",
     "criterion": "AC11 Every new string in Korean and English; no forbidden phrasings",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F12",
@@ -75,12 +75,12 @@
     "id": "F13",
     "phase": "P7",
     "criterion": "AC12 Setup UI confirms the per-category settings",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F14",
     "phase": "P8",
     "criterion": "AC13 DESIGN.md live states: recording strip, meter, cue card contents",
-    "passes": false
+    "passes": true
   }
 ]

@@ -50,10 +50,30 @@ final class VoiceDiarizer: @unchecked Sendable {
 
     /// Builds the saved profile from an enrolment clip: the audio plus its WeSpeaker voiceprint.
     func makeProfile(samples: [Float], sampleRate: Double) throws -> VoiceProfile {
+        try makeProfile(reading: [], freeSpeech: samples, sampleRate: sampleRate)
+    }
+
+    /// Builds the Pass 1 profile. The voiceprint averages the scripted reading and the free speech,
+    /// so both registers and both speaking styles count. The diarizer is primed from the free
+    /// speech, stored at 16 kHz to keep the file small.
+    func makeProfile(reading: [Float], freeSpeech: [Float], sampleRate: Double) throws -> VoiceProfile {
+        try lock.withLock {
+            let free = try converter.resample(freeSpeech, from: sampleRate)
+            var prints = [try voiceprints.extractSpeakerEmbedding(from: Array(free.suffix(Int(Self.printRate * 10))))]
+            if !reading.isEmpty {
+                let read = try converter.resample(reading, from: sampleRate)
+                prints.append(try voiceprints.extractSpeakerEmbedding(from: Array(read.suffix(Int(Self.printRate * 10)))))
+            }
+            let mean = (0..<prints[0].count).map { i in prints.map { $0[i] }.reduce(0, +) / Float(prints.count) }
+            return VoiceProfile(enrollmentAudio: free, sampleRate: Self.printRate, voiceprint: mean)
+        }
+    }
+
+    /// Cosine similarity between a clip and a voiceprint, for the enrolment's random-phrase check.
+    func similarity(of samples: [Float], sampleRate: Double, to voiceprint: [Float]) throws -> Double? {
         try lock.withLock {
             let clip = try converter.resample(samples, from: sampleRate)
-            let voiceprint = try voiceprints.extractSpeakerEmbedding(from: Array(clip.suffix(Int(Self.printRate * 10))))
-            return VoiceProfile(enrollmentAudio: samples, sampleRate: sampleRate, voiceprint: voiceprint)
+            return VoiceVerifier.cosineSimilarity(try voiceprints.extractSpeakerEmbedding(from: clip), voiceprint)
         }
     }
 

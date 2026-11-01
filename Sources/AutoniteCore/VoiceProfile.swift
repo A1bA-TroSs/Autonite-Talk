@@ -43,7 +43,9 @@ public struct VoiceProfileStore: Sendable {
 
     public func save(_ profile: VoiceProfile) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let data = try PropertyListEncoder().encode(profile)
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .binary
+        let data = try encoder.encode(profile)
         #if os(iOS)
         try data.write(to: file, options: [.atomic, .completeFileProtection])
         #else

@@ -421,3 +421,103 @@ private final class FakeEnroller: SpeakerEnrolling {
     #expect(cue)
     #expect(readings.mismatches == [.register])
 }
+
+// MARK: Pass 1 P7: onboarding, setup, copy
+
+@Test func pass1CopyIsBilingualAndAvoidsForbiddenClaims() {
+    for key in CopyKey.allCases {
+        let en = Copy.english[key], ko = Copy.korean[key]
+        #expect(en?.isEmpty == false, "missing English for \(key)")
+        #expect(ko?.isEmpty == false, "missing Korean for \(key)")
+        for text in [en ?? "", ko ?? ""] {
+            for phrase in Copy.forbidden {
+                #expect(!text.lowercased().contains(phrase), "\(key) contains \(phrase)")
+            }
+        }
+    }
+    #expect(Copy.text(.listening, .korean) == "듣고 있어요")
+}
+
+@Test func enrollmentOnboardingRequiresConsent() {
+    var onboarding = Onboarding()
+    // Recording permission for conversations is not biometric consent.
+    onboarding.allowRecording(true)
+    #expect(!onboarding.biometricConsent)
+    #expect(!onboarding.mayRecordEnrolment)
+    onboarding.update { $0.confirmPlacement() }
+    #expect(onboarding.enrollment.step == .consent)
+    onboarding.answerBiometricConsent(true)
+    #expect(!onboarding.mayRecordEnrolment) // placement first
+    onboarding.update { $0.confirmPlacement() }
+    #expect(onboarding.mayRecordEnrolment)
+
+    var declined = Onboarding()
+    declined.answerBiometricConsent(false)
+    #expect(declined.enrollment.step == .declined)
+    #expect(!declined.mayRecordEnrolment)
+}
+
+@Test func sessionSetupConfirmsCategorySettings() {
+    var setup = SessionSetup(intentionText: "Direct but respectful")
+    setup.propose(.firmNo)
+    // Pending: readers still use the nice default.
+    #expect(PhraseReader.read("That idea is stupid.", language: .english, settings: setup.confirmed)[.wordChoice] == .check)
+    setup.confirmProposal()
+    #expect(setup.confirmed == SettingsPreset.firmNo.settings)
+    #expect(PhraseReader.read("That idea is stupid.", language: .english, settings: setup.confirmed)[.wordChoice] == .aligned)
+    setup.confirm(wordChoice: .gentle)
+    #expect(setup.confirmed.wordChoice == .gentle)
+    #expect(setup.intentionText == "Direct but respectful")
+}
+
+// MARK: Pass 1 P8: live screen
+
+@Test func liveViewModelStatesAndCueCardContents() {
+    var screen = LiveScreen()
+    #expect(screen.phase == .idle)
+    let mine = Utterance(start: 0, end: 2, text: "그냥 네 생각을 솔직하게 듣고 싶어서 물어본 거야.", latency: 0, meanLevelDB: nil,
+                         predicted: .user, predictionConfidence: 0.9, overlapped: false, voiceMatch: 0.8)
+    let outcome = ReadingPipeline.evaluate(mine, language: .korean, settings: .niceDefault)
+    // Nothing happens before the session starts.
+    #expect(!screen.receive(outcome, phrase: mine.text, language: .korean))
+    screen.start()
+    #expect(screen.phase == .listening)
+    #expect(screen.receive(outcome, phrase: mine.text, language: .korean))
+    #expect(screen.needle == 1)
+    guard case .cueWaiting(let cue) = screen.phase else {
+        Issue.record("expected a waiting cue")
+        return
+    }
+    #expect(cue.phrase == mine.text)
+    #expect(cue.possibleReading == Copy.text(.readingRegisterCasual, .korean))
+    #expect(cue.whyHere == Copy.text(.whyRegisterPolite, .korean))
+    #expect(cue.tryNext == "그냥 네 생각을 솔직하게 듣고 싶어서 물어본 거예요.")
+    #expect(cue.categories == [.register])
+    screen.settleNeedle()
+    screen.openCue()
+    #expect(screen.phase == .cueOpen(cue))
+    screen.markInaccurate()
+    #expect(screen.phase == .listening)
+    #expect(screen.marks.map(\.phrase) == [mine.text])
+    // Another person's words never open a cue.
+    let theirs = Utterance(start: 0, end: 2, text: mine.text, latency: 0, meanLevelDB: nil, predicted: .other, predictionConfidence: 1)
+    #expect(!screen.receive(ReadingPipeline.evaluate(theirs, language: .korean, settings: .niceDefault), phrase: theirs.text, language: .korean))
+    screen.stop()
+    #expect(screen.phase == .stopped)
+}
+
+@Test func liveMeterGeometryKeepsLowerTicksAbsent() {
+    let ticks = MeterGeometry.tickAngles()
+    #expect(!ticks.isEmpty)
+    for angle in ticks {
+        // Upper half on screen is 180...360 degrees; every tick is on the reachable arc.
+        #expect(angle >= 180 && angle <= 360)
+        #expect(MeterGeometry.needleRange.contains(angle))
+    }
+    #expect(MeterGeometry.needleAngle(0) == ticks.first)
+    #expect(MeterGeometry.needleAngle(1) == ticks.last)
+    // Ring segments still go all the way round, keeping the circle.
+    #expect(MeterGeometry.segmentAngles().contains { $0 > 0 && $0 < 180 })
+    #expect(MeterGeometry.isAmber(MeterGeometry.needleAngle(1)))
+    #expect(!MeterGeometry.isAmber(MeterGeometry.needleAngle(0)))
+}
