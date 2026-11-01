@@ -165,11 +165,15 @@ public enum VoiceVerifier {
     /// Cosine similarity a `user` piece needs to stay `user`. Starting value; tune it from
     /// tagged runs so other voices give no false Me.
     public static let threshold = 0.5
+    /// Voiceprints from shorter speech are unreliable (ECAPA EER 7% at 1 s, 3% at 1.5 s), so a
+    /// shorter `user` piece is held back rather than verified. See the 2026-10-31 teardown.
+    public static let minimumSeconds = 1.5
 
-    /// Relabels a `user` piece as `unknown` when its similarity is missing or below the threshold.
+    /// Relabels a `user` piece as `unknown` when it is too short to verify, or its similarity
+    /// is missing or below the threshold.
     public static func verify(_ piece: VoicePiece, similarity: Double?) -> VoicePiece {
         guard piece.label == .user else { return piece }
-        if let similarity, similarity >= threshold { return piece }
+        if piece.duration >= minimumSeconds, let similarity, similarity >= threshold { return piece }
         return VoicePiece(
             text: piece.text, start: piece.start, end: piece.end, slot: piece.slot,
             label: .unknown, confidence: 0, overlapped: piece.overlapped

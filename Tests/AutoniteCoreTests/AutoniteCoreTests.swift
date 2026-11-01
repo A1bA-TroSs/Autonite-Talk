@@ -144,8 +144,10 @@ private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
 }
 
 @Test func verifierDropsUserPiecesThatDoNotMatchTheEnrolledVoice() {
-    let piece = VoicePiece(text: "x", start: 0, end: 1, slot: 0, label: .user, confidence: 1, overlapped: false)
+    let piece = VoicePiece(text: "x", start: 0, end: 2, slot: 0, label: .user, confidence: 1, overlapped: false)
     #expect(VoiceVerifier.verify(piece, similarity: 0.8).label == .user)
+    let short = VoicePiece(text: "x", start: 0, end: 1, slot: 0, label: .user, confidence: 1, overlapped: false)
+    #expect(VoiceVerifier.verify(short, similarity: 0.9).label == .unknown)
     #expect(VoiceVerifier.verify(piece, similarity: 0.2).label == .unknown)
     #expect(VoiceVerifier.verify(piece, similarity: nil).label == .unknown)
     let other = VoicePiece(text: "y", start: 0, end: 1, slot: 1, label: .other, confidence: 0.9, overlapped: false)
