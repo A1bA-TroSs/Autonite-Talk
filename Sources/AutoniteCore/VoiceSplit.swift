@@ -162,9 +162,10 @@ extension VoiceSplitter {
 /// voice, that voice can drift into the user's slot (Pass 0 run, 2026-10-29). Each `user`
 /// piece is kept only when its voiceprint is close enough to the enrolment's.
 public enum VoiceVerifier {
-    /// Cosine similarity a `user` piece needs to stay `user`. Starting value; tune it from
+    /// Cosine similarity a `user` piece needs to stay `user`. On 2026-11-01 clean solo speech scored
+    /// 0.69-0.82 and slot-Me pieces under a podcast 0.29-0.59, so 0.65 sits between them. Tune it from
     /// tagged runs so other voices give no false Me.
-    public static let threshold = 0.5
+    public static let threshold = 0.65
     /// Voiceprints from shorter speech are unreliable (ECAPA EER 7% at 1 s, 3% at 1.5 s), so a
     /// shorter `user` piece is held back rather than verified. See the 2026-10-31 teardown.
     public static let minimumSeconds = 1.5
