@@ -19,15 +19,26 @@ final class HapticProbe {
             engine.playsHapticsOnly = true
             try engine.start()
             self.engine = engine
+            // A rising "woong" buzz, not a single tap: a tap was too easy to miss on a table (Danny, 2026-11-01).
             let event = CHHapticEvent(
-                eventType: .hapticTransient,
+                eventType: .hapticContinuous,
                 parameters: [
                     CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
-                    CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.6),
+                    CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.3),
+                ],
+                relativeTime: 0,
+                duration: 0.6
+            )
+            let swell = CHHapticParameterCurve(
+                parameterID: .hapticIntensityControl,
+                controlPoints: [
+                    .init(relativeTime: 0, value: 0.4),
+                    .init(relativeTime: 0.35, value: 1.0),
+                    .init(relativeTime: 0.6, value: 0.7),
                 ],
                 relativeTime: 0
             )
-            let player = try engine.makePlayer(with: CHHapticPattern(events: [event], parameters: []))
+            let player = try engine.makePlayer(with: CHHapticPattern(events: [event], parameterCurves: [swell]))
             try player.start(atTime: CHHapticTimeImmediate)
         } catch {
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
