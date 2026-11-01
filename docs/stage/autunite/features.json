@@ -39,7 +39,7 @@
     "id": "F7",
     "phase": "P5",
     "criterion": "AC7 An intended category never produces a mismatch",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F8",
@@ -51,7 +51,7 @@
     "id": "F9",
     "phase": "P5",
     "criterion": "AC9 Sarcasm, tone/manner, sharp/stiff always report notMeasured",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F10",
@@ -69,7 +69,7 @@
     "id": "F12",
     "phase": "P5",
     "criterion": "AC12 Confirmed per-category intention settings drive the readers (logic)",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F13",

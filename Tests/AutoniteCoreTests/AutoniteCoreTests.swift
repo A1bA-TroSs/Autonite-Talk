@@ -338,3 +338,56 @@ private final class FakeEnroller: SpeakerEnrolling {
     #expect(WordChoiceReader.read("Hello there", setting: .gentle) == .aligned)
     #expect(WordChoiceReader.harshWords(in: "그만 좀 해, 짜증나.") == ["짜증나"])
 }
+
+// MARK: Pass 1 P5: settings, weighting, unmeasured slots
+
+@Test func intentionWeightingTableSuppressesChosenModes() {
+    let casual = "그거 내가 할게."
+    let harsh = "That idea is stupid."
+    let nice = CategorySettings.niceDefault
+    #expect(PhraseReader.read(casual, language: .korean, settings: nice)[.register] == .check)
+    #expect(PhraseReader.read(harsh, language: .english, settings: nice)[.wordChoice] == .check)
+    for register in [RegisterSetting.casualFine, .either] {
+        let settings = CategorySettings(register: register, wordChoice: .gentle)
+        #expect(PhraseReader.read(casual, language: .korean, settings: settings).mismatches.isEmpty)
+    }
+    let blunt = CategorySettings(register: .politeExpected, wordChoice: .bluntFine)
+    #expect(PhraseReader.read(harsh, language: .english, settings: blunt)[.wordChoice] == .aligned)
+}
+
+@Test func confirmedCategorySettingsDriveReaders() {
+    var setup = SessionSetup(intentionText: "편하게 얘기하고 싶어")
+    // Nice by default: 반말 to anyone is a check until the user relaxes it.
+    #expect(PhraseReader.read("내일 보자.", language: .korean, settings: setup.confirmed).mismatches == [.register])
+    setup.propose(.closeFriend)
+    setup.confirmProposal()
+    #expect(PhraseReader.read("내일 보자.", language: .korean, settings: setup.confirmed).mismatches.isEmpty)
+    setup.confirm(register: .politeExpected)
+    #expect(PhraseReader.read("내일 보자.", language: .korean, settings: setup.confirmed).mismatches == [.register])
+    // The free text is kept as written and never changes a setting.
+    #expect(setup.intentionText == "편하게 얘기하고 싶어")
+}
+
+@Test func unconfirmedPresetDoesNotChangeReadings() {
+    var setup = SessionSetup()
+    setup.propose(.closeFriend)
+    #expect(setup.confirmed == .niceDefault)
+    #expect(PhraseReader.read("내일 보자.", language: .korean, settings: setup.confirmed)[.register] == .check)
+    setup.discardProposal()
+    #expect(setup.proposed == nil)
+    #expect(setup.confirmed == .niceDefault)
+}
+
+@Test func unmeasuredCategoriesAlwaysAbstain() {
+    let phrases = ["그거 내가 할게.", "That idea is stupid.", "네, 알겠습니다.", ""]
+    let settings = [CategorySettings.niceDefault, SettingsPreset.closeFriend.settings, SettingsPreset.firmNo.settings]
+    for phrase in phrases {
+        for s in settings {
+            let readings = PhraseReader.read(phrase, language: .korean, settings: s)
+            for category in [ReadingCategory.sarcasm, .manner, .voiceTone] {
+                #expect(readings[category] == .notMeasured)
+                #expect(!readings.mismatches.contains(category))
+            }
+        }
+    }
+}
