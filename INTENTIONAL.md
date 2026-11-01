@@ -6,16 +6,17 @@
 
 Help a person speak as they intend during an in-person conversation, without making them stare at a transcript. The user puts an iPhone screen-up nearby. The app listens with the participants' knowledge, gives a brief vibration when the user's wording may diverge from a tone they chose for that conversation, and explains the possible reading and a useful next sentence when checked. After the conversation, it provides a factual recap and drafts follow-ups such as calendar events for the user to review.
 
-This is a **conversation translator**: it preserves meaning while offering a different expression. It must not decide that every conversation should be warmer, infer another person's feelings as fact, or classify people by MBTI type.
+This is a **conversation translator**: it preserves meaning while offering a different expression. Its default aim is to help the user speak nicely (말 예쁘게), but it must not override a category the user switched off for a conversation, infer another person's feelings as fact, or classify people by MBTI type.
 
 ## 2. Decisions already made by the user
 
 - Begin with **face-to-face conversations on iPhone**. Ordinary phone-call capture is outside the first release.
 - Give **wording coaching during the conversation**. Produce the detailed summary, action list, and calendar candidates **after the session ends**.
 - Keep the phone **screen-up nearby**; use a **brief vibration** to call attention to a useful cue. The user checks the screen to read the reason and a suggested next sentence. No earbud delivery.
-- Use a **Geiger-counter-like meter** as the visual metaphor. It reacts when the user's wording does not fit their chosen conversational intention. This is not a radiation meter or a measurement of another person's emotions.
+- Use a **Geiger-counter-like meter** as the visual metaphor. Like a counter picking up radiation, it reacts to **toxicness in the user's own speech**: word choice, sarcasm (비아냥), register (어체, 존댓말/반말), manner (말투) and voice tone. It does not measure another person's emotions.
+- **Nice by default, adjustable** (decided 31 October 2026). The meter reads toxicness against speaking nicely, tuned by the relationship (for example, a senior expects 존댓말). The user can switch a category off for a conversation where bluntness is the goal, such as delivering a firm no.
 - Keep the meter visually round, with tick marks only on the upper range the needle can reach. Keep one recording indicator above the meter. Reserve the mineral facets and orbit illustration for the report header; keep them out of the live meter.
-- Let the user set a personal tone and the way they want to relate to the other person **for each conversation**. Warmth is not the universal target.
+- Let the user set a personal tone and the way they want to relate to the other person **for each conversation**. Niceness is the default target, and the user can relax it per category.
 - Limit initial interface and speech-recognition languages to **English and Korean**.
 - Keep the **two overlapping speech-bubble form** for the logo; give the bubbles mineral-like facets or gradation and add an orbit, matching the FoolsGold and Iolite logo family.
 
@@ -48,7 +49,19 @@ Example, with intention **Direct + respectful**:
 > Cue: “This may sound like a rejection of the whole idea.”  
 > Next sentence: “I see the goal. I'm concerned about the timing.”
 
-For a different intention, the same phrase may produce a different cue or none. The meter's movement represents **possible distance from the selected intention**, not a moral score or a judgment of the other speaker.
+For a different intention, the same phrase may produce a different cue or none. The meter's movement represents **possible toxicness in the user's own phrase, judged against the session's settings** (nice by default, adjusted by the user). It is not a grade of the user's character or a judgment of the other speaker.
+
+### Toxicness categories and readiness
+
+| Category | Read from | Status |
+|---|---|---|
+| Register (어체: 존댓말/반말 shift against the relationship) | Transcript (Korean verb endings) | First release |
+| Word choice (insults, profanity, harsh words) | Transcript | First release |
+| Sarcasm (비아냥) | Transcript plus context; prosody helps | Behind an evaluation gate: no validated Korean detector |
+| Manner (말투) and sharp or stiff phrasing | Transcript plus prosody | Behind an evaluation gate |
+| Voice tone | Prosody (pitch, loudness, rate) | Behind an evaluation gate: no validated Korean model |
+
+A category behind the gate does not fire live cues until a bilingual evaluation set shows it works. Do not advertise it before then.
 
 ## 5. Meter behavior
 
