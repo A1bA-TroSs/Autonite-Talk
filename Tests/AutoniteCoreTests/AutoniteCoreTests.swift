@@ -229,3 +229,60 @@ private final class FakeEnroller: SpeakerEnrolling {
     #expect(slot == 0)
     #expect(enroller.received?.voiceprint == [1, 0])
 }
+
+// MARK: Pass 1 P3: Korean register
+
+@Test func koreanRegisterThirtyPhraseFixture() {
+    // (phrase, reading when 존댓말 is expected)
+    let fixture: [(String, Reading)] = [
+        // 하십시오체
+        ("그 부분은 조금 더 확인해 보고 다시 말씀드리겠습니다.", .aligned),
+        ("회의는 세 시에 시작합니다.", .aligned),
+        ("이 자료가 맞습니까?", .aligned),
+        ("잠시만 기다려 주십시오.", .aligned),
+        ("제 생각은 조금 다릅니다", .aligned),
+        ("그건 제 실수가 아닙니다.", .aligned),
+        ("내일 다시 연락드리겠습니다.", .aligned),
+        // 해요체
+        ("내일 회의 자료는 제가 오전까지 정리해서 보내 드릴게요.", .aligned),
+        ("팀장님, 일정이 빠듯해서 금요일은 어려울 것 같아요.", .aligned),
+        ("혹시 쓰신 보고서를 같이 볼 수 있을까요?", .aligned),
+        ("그건 좀 어렵죠.", .aligned),
+        ("지금 가고 있어요", .aligned),
+        ("네.", .aligned),
+        ("저도 그렇게 생각해요. 근데 시간이 부족해요.", .aligned),
+        // 반말
+        ("아까 내가 좀 딱딱하게 말했지? 미안, 그런 뜻 아니었어.", .check),
+        ("그냥 네 생각을 솔직하게 듣고 싶어서 물어본 거야.", .check),
+        ("주말에 시간 괜찮으면 같이 밥이나 먹자.", .check),
+        ("의자 좀 저쪽으로 치워 줄래? 짐 놓을 데가 없어.", .check),
+        ("그거 내가 할게.", .check),
+        ("왜 그렇게 늦었냐?", .check),
+        ("빨리 와 봐.", .check),
+        ("그건 아니다.", .check),
+        ("이거 진짜 맛있네.", .check),
+        ("너 어제 거기 갔잖아.", .check),
+        // Mixed: one 반말 slip in polite speech is a check.
+        ("네, 알겠습니다. 근데 그건 좀 아니야.", .check),
+        ("저는 괜찮아요. 너는 어때?", .check),
+        ("확인했습니다. 내일 보자.", .check),
+        // No clear final ending: abstain.
+        ("그리고 적당히 즐기고", .unknown),
+        ("그러니까", .unknown),
+        ("어", .unknown),
+        ("회의 자료", .unknown),
+        ("내가 생각하기에는 그게 좀 그래서", .unknown),
+        ("hello there", .unknown),
+    ]
+    #expect(fixture.count >= 30)
+    for (phrase, expected) in fixture {
+        #expect(KoreanRegisterReader.read(phrase, setting: .politeExpected).reading == expected, "\(phrase)")
+    }
+    // A confirmed relaxed setting never checks; abstentions stay unknown.
+    for (phrase, expected) in fixture {
+        let relaxed = KoreanRegisterReader.read(phrase, setting: .casualFine).reading
+        #expect(relaxed == (expected == .unknown ? .unknown : .aligned), "\(phrase)")
+    }
+    #expect(KoreanRegisterReader.read("회의는 세 시에 시작합니다.", setting: .politeExpected).found == [.formal])
+    #expect(KoreanRegisterReader.read("지금 가고 있어요", setting: .politeExpected).found == [.polite])
+}

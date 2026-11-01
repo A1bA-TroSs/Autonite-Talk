@@ -21,7 +21,7 @@
     "id": "F4",
     "phase": "P3",
     "criterion": "AC4 Korean register reader passes a 30+ phrase fixture",
-    "passes": false
+    "passes": true
   },
   {
     "id": "F5",
