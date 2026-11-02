@@ -172,13 +172,92 @@ public enum VoiceVerifier {
 
     /// Relabels a `user` piece as `unknown` when it is too short to verify, or its similarity
     /// is missing or below the threshold.
-    public static func verify(_ piece: VoicePiece, similarity: Double?) -> VoicePiece {
+    ///
+    /// `evidence` is the span the similarity was measured over (see `evidenceWindow`); it defaults
+    /// to the piece itself.
+    public static func verify(_ piece: VoicePiece, similarity: Double?, evidence: ClosedRange<Double>? = nil) -> VoicePiece {
         guard piece.label == .user else { return piece }
-        if piece.duration >= minimumSeconds, let similarity, similarity >= threshold { return piece }
+        let seconds = evidence.map { $0.upperBound - $0.lowerBound } ?? piece.duration
+        if seconds >= minimumSeconds, let similarity, similarity >= threshold { return piece }
         return VoicePiece(
             text: piece.text, start: piece.start, end: piece.end, slot: piece.slot,
             label: .unknown, confidence: 0, overlapped: piece.overlapped
         )
+    }
+
+    /// The span to measure a `user` piece's voiceprint over. A piece of at least `minimumSeconds`
+    /// is measured on its own. A shorter one (a lone word such as a swear) is measured over the
+    /// user slot's continuous speech around it, so long as no other slot talks anywhere in that
+    /// span; otherwise it stays the piece alone, and `verify` then holds it back as too short.
+    public static func evidenceWindow(for piece: VoicePiece, turns: [SpeakerTurn], userSlot: Int?) -> ClosedRange<Double> {
+        let own = piece.start...max(piece.start, piece.end)
+        guard piece.label == .user, piece.duration < minimumSeconds, let userSlot else { return own }
+        let mine = turns.filter { $0.slot == userSlot }.sorted { $0.start < $1.start }
+        guard var window = mine.first(where: { $0.start <= piece.end && $0.end >= piece.start }).map({ $0.start...$0.end }) else { return own }
+        // Join the user's turns that touch this one (gaps under `joinGap`).
+        var grew = true
+        while grew {
+            grew = false
+            for turn in mine where turn.end >= window.lowerBound - joinGap && turn.start <= window.upperBound + joinGap {
+                let joined = min(window.lowerBound, turn.start)...max(window.upperBound, turn.end)
+                if joined != window { window = joined; grew = true }
+            }
+        }
+        let others = turns.contains { $0.slot != userSlot && $0.start < window.upperBound && $0.end > window.lowerBound }
+        return others ? own : min(window.lowerBound, own.lowerBound)...max(window.upperBound, own.upperBound)
+    }
+
+    /// The stretch of audio to verify while the user is still talking: the last `span` seconds up to
+    /// the diarizer's newest turn. Returns nil unless the user's slot covers at least
+    /// `minimumSeconds` of it and no other slot speaks anywhere in it.
+    public static func recentUserWindow(turns: [SpeakerTurn], userSlot: Int?, span: Double = 3) -> ClosedRange<Double>? {
+        guard let userSlot, let now = turns.map(\.end).max() else { return nil }
+        let window = max(0, now - span)...now
+        let inside = turns.filter { $0.start < window.upperBound && $0.end > window.lowerBound }
+        guard !inside.contains(where: { $0.slot != userSlot }) else { return nil }
+        let mine = inside.map { max($0.start, window.lowerBound)...min($0.end, window.upperBound) }
+        let covered = mine.reduce(0) { $0 + ($1.upperBound - $1.lowerBound) }
+        guard covered >= minimumSeconds, let first = mine.map(\.lowerBound).min(), let last = mine.map(\.upperBound).max() else { return nil }
+        return first...last
+    }
+
+    /// User turns closer than this count as one stretch of speech.
+    public static let joinGap = 0.3
+
+    /// A higher bar for speech the diarizer did not put in the user's slot. Its slots drift when the
+    /// user changes tone, so a piece that sounds clearly like the user is reclaimed, but only above
+    /// this, which sits over every other-voice score seen so far (0.29-0.59 on 2026-11-01).
+    public static let strictThreshold = 0.72
+
+    /// The closest of several enrolled voiceprints, so varied tones and pitches all match.
+    public static func bestMatch(_ print: [Float], against prints: [[Float]]) -> Double? {
+        prints.compactMap { cosineSimilarity(print, $0) }.max()
+    }
+
+    /// Relabels a non-overlapped `other` piece as `user` when it is long enough and clearly the
+    /// enrolled voice (at least `strictThreshold`). Everything else is returned unchanged.
+    public static func reclaim(_ piece: VoicePiece, similarity: Double?, evidence: ClosedRange<Double>? = nil) -> VoicePiece {
+        guard piece.label == .other, !piece.overlapped, let similarity, similarity >= strictThreshold else { return piece }
+        let seconds = evidence.map { $0.upperBound - $0.lowerBound } ?? piece.duration
+        guard seconds >= minimumSeconds else { return piece }
+        return VoicePiece(text: piece.text, start: piece.start, end: piece.end, slot: piece.slot,
+                          label: .user, confidence: 1, overlapped: false)
+    }
+
+    /// The last `span` seconds of speech when no two slots talk at the same moment in it and there is
+    /// at least `minimumSeconds` of speech. Used, with `strictThreshold`, when the diarizer has put
+    /// some of the user's own speech in another slot.
+    public static func recentSpeechWindow(turns: [SpeakerTurn], span: Double = 3) -> ClosedRange<Double>? {
+        guard let now = turns.map(\.end).max() else { return nil }
+        let window = max(0, now - span)...now
+        let inside = turns.filter { $0.start < window.upperBound && $0.end > window.lowerBound }
+            .map { SpeakerTurn(slot: $0.slot, start: max($0.start, window.lowerBound), end: min($0.end, window.upperBound)) }
+        for a in inside {
+            for b in inside where b.slot != a.slot && b.start < a.end && a.start < b.end { return nil }
+        }
+        let covered = inside.reduce(0) { $0 + ($1.end - $1.start) }
+        guard covered >= minimumSeconds, let first = inside.map(\.start).min(), let last = inside.map(\.end).max() else { return nil }
+        return first...last
     }
 
     public static func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Double? {

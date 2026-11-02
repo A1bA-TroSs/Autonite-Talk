@@ -160,7 +160,7 @@ struct FeasibilityView: View {
 }
 
 /// The single recording indicator: dot, label, level and elapsed time.
-private struct RecordingStrip: View {
+struct RecordingStrip: View {
     let startedAt: Date?
     let levelDB: Double
     let interrupted: Bool

@@ -37,7 +37,16 @@ final class FeasibilityModel {
     var isEnrolling = false
     /// The enrolment clip, in memory only for this app run. Never written to disk.
     private var enrollment: (samples: [Float], sampleRate: Double)?
-    var isEnrolled: Bool { enrollment != nil }
+    var isEnrolled: Bool { enrollment != nil || profile != nil }
+    /// Pass 1: the saved voice profile. When set, sessions enrol from it instead of the in-memory clip.
+    var profile: VoiceProfile?
+    /// Pass 1: called with each attributed piece of a voice session, in order.
+    var onVoiceUtterance: ((Utterance) -> Void)?
+    /// Pass 1 fast path: settings to read in-progress text with, and where an early cue goes.
+    /// Nil settings turn the fast path off (Lab sessions).
+    var earlySettings: CategorySettings?
+    var onEarlyCue: ((Utterance) -> Void)?
+    private var early = EarlyReader()
     /// Voice attribution is used when the model is loaded and a voice is enrolled; otherwise level.
     var method: AttributionMethod { voiceStatus == .ready && isEnrolled ? .voice : .level }
     private(set) var sessionMethod: AttributionMethod = .level
@@ -45,6 +54,10 @@ final class FeasibilityModel {
     private var voiceFeed: AsyncStream<([Float], Double)>.Continuation?
     private var voiceFeedTask: Task<Void, Never>?
     private var resolveTask: Task<Void, Never>?
+    /// Background voice check of the last few seconds, kept fresh so an early cue doesn't wait
+    /// for a voiceprint to be computed when the harsh word arrives.
+    private var verifyTask: Task<Void, Never>?
+    @ObservationIgnored private var recentCheck: (at: Date, window: ClosedRange<Double>, match: Double, slot: Int?)?
     private var pending: [PendingLine] = []
 
     /// A final transcript line waiting for the diarizer to catch up with its end time.
@@ -96,15 +109,24 @@ final class FeasibilityModel {
         lastError = nil
         utterances = []
         volatileText = ""
+        early = EarlyReader()
         interruptions = 0
         failures = []
         pending = []
         sessionMethod = method
         let engine = LiveTranscriptionEngine()
         self.engine = engine
-        if sessionMethod == .voice, let enrollment {
+        if sessionMethod == .voice {
             do {
-                if try voice.beginSession(enrollment: enrollment.samples, sampleRate: enrollment.sampleRate) == nil {
+                let slot: Int?
+                if let profile {
+                    slot = try voice.enroll(profile)
+                } else if let enrollment {
+                    slot = try voice.beginSession(enrollment: enrollment.samples, sampleRate: enrollment.sampleRate)
+                } else {
+                    slot = nil
+                }
+                if slot == nil {
                     failures.append("Enrolment found no speech; using level attribution")
                     sessionMethod = .level
                 }
@@ -121,6 +143,18 @@ final class FeasibilityModel {
             voiceFeedTask = Task.detached {
                 for await (samples, rate) in stream {
                     try? voice.feed(samples, sampleRate: rate)
+                }
+            }
+            recentCheck = nil
+            verifyTask = Task.detached { [weak self] in
+                while !Task.isCancelled {
+                    let snapshot = voice.snapshot()
+                    if let check = Self.checkRecent(voice, snapshot) {
+                        await self?.storeRecentCheck(window: check.window, match: check.match, slot: snapshot.userSlot)
+                    } else {
+                        await self?.clearRecentCheck()
+                    }
+                    try? await Task.sleep(for: .milliseconds(250))
                 }
             }
             resolveTask = Task { [weak self] in
@@ -161,6 +195,8 @@ final class FeasibilityModel {
         if sessionMethod == .voice {
             resolveTask?.cancel()
             resolveTask = nil
+            verifyTask?.cancel()
+            verifyTask = nil
             voiceFeed?.finish()
             voiceFeed = nil
             await voiceFeedTask?.value
@@ -192,8 +228,10 @@ final class FeasibilityModel {
             levelDB = db
         case .volatile(let text):
             volatileText = text
+            readEarly(text)
         case .final(let text, let start, let end, let latency, let words):
             volatileText = ""
+            early.lineFinished()
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             if sessionMethod == .voice {
                 pending.append(PendingLine(words: words, start: start, end: end, text: text, latency: latency, arrived: Date()))
@@ -272,6 +310,53 @@ final class FeasibilityModel {
         }
     }
 
+    /// Cues on in-progress text as soon as it holds a settled mismatch, when the last seconds of
+    /// audio are the user's slot alone and match the enrolled voice. Otherwise it waits and tries
+    /// again on the next update, and the final line still goes through the full gate.
+    private func readEarly(_ text: String) {
+        guard sessionMethod == .voice, let settings = earlySettings,
+              early.hasNewMismatch(text, language: language, settings: settings) else { return }
+        // Use the background check when it is fresh; compute one now only when it isn't.
+        let check: (window: ClosedRange<Double>, match: Double, slot: Int?)
+        if let recent = recentCheck, Date().timeIntervalSince(recent.at) < 0.8 {
+            check = (recent.window, recent.match, recent.slot)
+        } else {
+            let snapshot = voice.snapshot()
+            guard let recent = Self.checkRecent(voice, snapshot) else { return }
+            check = (recent.window, recent.match, snapshot.userSlot)
+        }
+        early.markCued(text, language: language, settings: settings)
+        onEarlyCue?(Utterance(
+            start: check.window.lowerBound, end: check.window.upperBound, text: text, latency: 0, meanLevelDB: nil,
+            predicted: .user, predictionConfidence: 1, voiceSlot: check.slot, overlapped: false,
+            voiceMatch: check.match
+        ))
+    }
+
+    /// The voice check behind an early cue. The user's slot alone for 1.5 s and the normal
+    /// threshold; or, when the diarizer moved some of the user's speech to another slot, any
+    /// non-overlapping speech that clears the strict threshold. Returns only passing checks.
+    nonisolated private static func checkRecent(_ voice: VoiceDiarizer, _ snapshot: VoiceDiarizer.Snapshot) -> (window: ClosedRange<Double>, match: Double)? {
+        if let window = VoiceVerifier.recentUserWindow(turns: snapshot.turns, userSlot: snapshot.userSlot),
+           let match = voice.voiceMatch(start: window.lowerBound, end: window.upperBound),
+           match >= VoiceVerifier.threshold {
+            return (window, match)
+        }
+        if snapshot.userSlot != nil,
+           let window = VoiceVerifier.recentSpeechWindow(turns: snapshot.turns),
+           let match = voice.voiceMatch(start: window.lowerBound, end: window.upperBound),
+           match >= VoiceVerifier.strictThreshold {
+            return (window, match)
+        }
+        return nil
+    }
+
+    private func storeRecentCheck(window: ClosedRange<Double>, match: Double, slot: Int?) {
+        recentCheck = (Date(), window, match, slot)
+    }
+
+    private func clearRecentCheck() { recentCheck = nil }
+
     /// Splits each waiting line once the diarizer has final turns past its end, or all of them at the end of a session.
     private func resolvePending(final: Bool) {
         guard !pending.isEmpty else { return }
@@ -283,8 +368,16 @@ final class FeasibilityModel {
             let pieces = VoiceSplitter.smooth(VoiceSplitter.split(words: words, turns: snapshot.turns, userSlot: snapshot.userSlot))
             for split in pieces {
                 // Only slot-Me speech is checked against the enrolled voice; the rest can't be called Me anyway.
-                let match = split.label == .user ? voice.voiceMatch(start: split.start, end: split.end) : nil
-                let piece = VoiceVerifier.verify(split, similarity: match)
+                let evidence = VoiceVerifier.evidenceWindow(for: split, turns: snapshot.turns, userSlot: snapshot.userSlot)
+                // Slot-other speech is checked too: the diarizer's slots drift when the user's tone
+                // changes, and a clearly matching piece is reclaimed (strict threshold).
+                let checkable = split.label == .user || (split.label == .other && !split.overlapped && snapshot.userSlot != nil)
+                let match = checkable ? voice.voiceMatch(start: evidence.lowerBound, end: evidence.upperBound) : nil
+                let piece = VoiceVerifier.reclaim(VoiceVerifier.verify(split, similarity: match, evidence: evidence), similarity: match, evidence: evidence)
+                // Clearly-you speech from today joins the session's voice prints.
+                if piece.label == .user, let match, match >= VoiceVerifier.strictThreshold, piece.duration >= 2 {
+                    voice.adapt(start: piece.start, end: piece.end)
+                }
                 utterances.append(Utterance(
                     start: piece.start, end: piece.end, text: piece.text, latency: line.latency,
                     meanLevelDB: engine?.levels.meanDB(from: piece.start, to: piece.end),
@@ -292,8 +385,19 @@ final class FeasibilityModel {
                     voiceSlot: piece.slot, overlapped: piece.overlapped, attributionDelay: delay,
                     voiceMatch: match
                 ))
+                if let latest = utterances.last { onVoiceUtterance?(latest) }
             }
         }
+    }
+
+    // MARK: Pass 1 voice profile
+
+    func makeProfile(reading: [Float], freeSpeech: [Float], sampleRate: Double) throws -> VoiceProfile {
+        try voice.makeProfile(reading: reading, freeSpeech: freeSpeech, sampleRate: sampleRate)
+    }
+
+    func similarity(of samples: [Float], sampleRate: Double, to voiceprint: [Float]) throws -> Double? {
+        try voice.similarity(of: samples, sampleRate: sampleRate, to: voiceprint)
     }
 
     // MARK: Haptics
