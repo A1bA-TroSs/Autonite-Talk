@@ -265,7 +265,9 @@ struct LiveView: View {
                 // The single recording indicator (DESIGN.md).
                 LiveRecordingStrip(model: model)
                 MeterView(needle: model.screen.needle, label: centerLabel, detail: centerDetail, cue: isCue)
-                    .frame(width: 300, height: 300)
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(maxWidth: 380, maxHeight: .infinity)
+                    .layoutPriority(1)
                     .contentShape(Circle())
                     .onTapGesture { model.screen.openCue() }
                     .accessibilityAddTraits(.isButton)
@@ -276,7 +278,6 @@ struct LiveView: View {
                         .multilineTextAlignment(.center)
                 }
                 LastHeardRow(model: model)
-                Spacer(minLength: 0)
                 IntentionRow(model: model)
                 if model.screen.phase == .stopped {
                     PrimaryButton(title: model.copy(.setupTitle)) { model.backToSetup() }
@@ -490,16 +491,19 @@ struct MeterView: View {
         GeometryReader { proxy in
             let size = min(proxy.size.width, proxy.size.height)
             let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-            let ring = size * 0.085
-            let radius = size / 2 - size * 0.09
+            let ring = size * 0.1
+            let radius = size / 2 - size * 0.1
             let span = 360 / Double(MeterGeometry.segmentCount)
             let active = MeterGeometry.segment(containing: MeterGeometry.needleAngle(needle))
             ZStack {
                 ForEach(MeterGeometry.segmentAngles(), id: \.self) { start in
-                    Path { path in
-                        path.addArc(center: center, radius: radius, startAngle: .degrees(start + 3), endAngle: .degrees(start + span - 3), clockwise: false)
-                    }
-                    .stroke(color(for: start, active: active), style: StrokeStyle(lineWidth: ring, lineCap: .round))
+                    let lit = start == active
+                    let shape = RingSegment(center: center, inner: radius - ring / 2, outer: radius + ring / 2,
+                                            start: start + 2.2, end: start + span - 2.2)
+                    shape
+                        .fill(LinearGradient(colors: fill(lit: lit), startPoint: .top, endPoint: .bottom))
+                        .overlay(shape.stroke(Color.white.opacity(lit ? 0.35 : 0.12), lineWidth: 1))
+                        .shadow(color: lit ? glow : .clear, radius: lit ? 10 : 0)
                 }
                 ForEach(MeterGeometry.tickAngles(), id: \.self) { angle in
                     let major = Int((angle - MeterGeometry.tickRange.lowerBound).rounded()) % 35 == 0
@@ -531,14 +535,37 @@ struct MeterView: View {
         .accessibilityLabel(label)
     }
 
-    private func color(for start: Double, active: Double?) -> Color {
-        guard start == active else { return Palette.segment.opacity(0.75) }
-        return needle > 0.5 ? Palette.amber : Palette.primary
+    private var glow: Color { (needle > 0.5 ? Palette.amber : Palette.primary).opacity(0.6) }
+
+    /// Translucent segments with a lighter top edge, as in the reference; the lit one glows.
+    private func fill(lit: Bool) -> [Color] {
+        guard lit else { return [Palette.segment.opacity(0.95), Palette.segment.opacity(0.55)] }
+        let base = needle > 0.5 ? Palette.amber : Palette.primary
+        return [base, base.opacity(0.75)]
     }
 
     private func point(_ center: CGPoint, _ r: CGFloat, _ degrees: Double) -> CGPoint {
         let radians = degrees * .pi / 180
         return CGPoint(x: center.x + r * cos(radians), y: center.y + r * sin(radians))
+    }
+}
+#endif
+
+#if os(iOS)
+/// One annular sector of the meter ring, with square ends so neighbours leave clean gaps.
+struct RingSegment: Shape {
+    let center: CGPoint
+    let inner: CGFloat
+    let outer: CGFloat
+    let start: Double
+    let end: Double
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addArc(center: center, radius: outer, startAngle: .degrees(start), endAngle: .degrees(end), clockwise: false)
+        path.addArc(center: center, radius: inner, startAngle: .degrees(end), endAngle: .degrees(start), clockwise: true)
+        path.closeSubpath()
+        return path
     }
 }
 #endif

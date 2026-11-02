@@ -171,7 +171,7 @@ public enum Copy {
         .proposalPending: "이 프리셋은 아래 설정을 제안해요. 확인해야 적용돼요.",
         .proposalConfirm: "이 설정으로 할게요",
         .proposalDiscard: "지금 설정 유지",
-        .registerTitle: "말투 높임",
+        .registerTitle: "높임말",
         .registerPolite: "존댓말",
         .registerCasualFine: "반말도 괜찮아요",
         .registerEither: "상관없어요",
