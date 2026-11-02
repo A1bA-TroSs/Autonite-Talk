@@ -72,6 +72,13 @@ jobs:
             sleep 6
             xcrun simctl io "$udid" screenshot "screens/$screen.png"
           done
+          # Also print small JPEGs into the log, for reviewers who can read logs but not artifacts.
+          for screen in setup live cue; do
+            sips -s format jpeg -s formatOptions 70 -Z 1000 "screens/$screen.png" --out "$RUNNER_TEMP/$screen.jpg" >/dev/null
+            echo "SCREEN-BEGIN $screen"
+            base64 -i "$RUNNER_TEMP/$screen.jpg" | fold -w 4000
+            echo "SCREEN-END $screen"
+          done
 
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
