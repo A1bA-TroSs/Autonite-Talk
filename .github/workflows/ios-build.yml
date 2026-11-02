@@ -60,6 +60,26 @@ jobs:
           SIMCTL_CHILD_AUTONITE_SELFTEST=1 perl -e 'alarm 120; exec @ARGV' xcrun simctl launch --console "$udid" "$bundle_id" | tee selftest.log || true
           grep -qx "autonite selftest succeeded" selftest.log
 
+      - name: Screenshots for design review
+        run: |
+          udid=$(xcrun simctl list devices booted -j | python3 -c 'import json,sys; print([d["udid"] for v in json.load(sys.stdin)["devices"].values() for d in v][0])')
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
+          xcrun simctl ui "$udid" appearance dark || true
+          mkdir -p screens
+          for screen in setup live cue; do
+            xcrun simctl terminate "$udid" "$bundle_id" || true
+            SIMCTL_CHILD_AUTONITE_SCREEN=$screen xcrun simctl launch "$udid" "$bundle_id"
+            sleep 6
+            xcrun simctl io "$udid" screenshot "screens/$screen.png"
+          done
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screens
+          path: screens/
+          retention-days: 3
+
       - name: Upload device build
         uses: actions/upload-artifact@v4
         with:

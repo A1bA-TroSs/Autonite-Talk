@@ -322,7 +322,7 @@ private struct LiveRecordingStrip: View {
             Circle()
                 .fill(model.lab.state == .interrupted ? Palette.amber : Palette.recordingDot)
                 .frame(width: 12, height: 12)
-            Text(model.lab.isRecording ? model.copy(.recording) : model.copy(.sessionStopped))
+            Text(model.showsRecording ? model.copy(.recording) : model.copy(.sessionStopped))
                 .font(.subheadline)
             HStack(alignment: .center, spacing: 2) {
                 ForEach(levels.indices, id: \.self) { i in
@@ -332,7 +332,7 @@ private struct LiveRecordingStrip: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: 28)
-            if let startedAt = model.lab.startedAt, model.lab.isRecording {
+            if let startedAt = model.recordingStartedAt, model.showsRecording {
                 Text(startedAt, style: .timer)
                     .font(.subheadline.monospacedDigit())
             }

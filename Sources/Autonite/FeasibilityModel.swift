@@ -42,6 +42,11 @@ final class FeasibilityModel {
     var profile: VoiceProfile?
     /// Pass 1: called with each attributed piece of a voice session, in order.
     var onVoiceUtterance: ((Utterance) -> Void)?
+    /// Pass 1 fast path: settings to read in-progress text with, and where an early cue goes.
+    /// Nil settings turn the fast path off (Lab sessions).
+    var earlySettings: CategorySettings?
+    var onEarlyCue: ((Utterance) -> Void)?
+    private var early = EarlyReader()
     /// Voice attribution is used when the model is loaded and a voice is enrolled; otherwise level.
     var method: AttributionMethod { voiceStatus == .ready && isEnrolled ? .voice : .level }
     private(set) var sessionMethod: AttributionMethod = .level
@@ -100,6 +105,7 @@ final class FeasibilityModel {
         lastError = nil
         utterances = []
         volatileText = ""
+        early = EarlyReader()
         interruptions = 0
         failures = []
         pending = []
@@ -204,8 +210,10 @@ final class FeasibilityModel {
             levelDB = db
         case .volatile(let text):
             volatileText = text
+            readEarly(text)
         case .final(let text, let start, let end, let latency, let words):
             volatileText = ""
+            early.lineFinished()
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             if sessionMethod == .voice {
                 pending.append(PendingLine(words: words, start: start, end: end, text: text, latency: latency, arrived: Date()))
@@ -282,6 +290,24 @@ final class FeasibilityModel {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    /// Cues on in-progress text as soon as it holds a settled mismatch, when the last seconds of
+    /// audio are the user's slot alone and match the enrolled voice. Otherwise it waits and tries
+    /// again on the next update, and the final line still goes through the full gate.
+    private func readEarly(_ text: String) {
+        guard sessionMethod == .voice, let settings = earlySettings,
+              early.hasNewMismatch(text, language: language, settings: settings) else { return }
+        let snapshot = voice.snapshot()
+        guard let window = VoiceVerifier.recentUserWindow(turns: snapshot.turns, userSlot: snapshot.userSlot),
+              let match = voice.voiceMatch(start: window.lowerBound, end: window.upperBound),
+              match >= VoiceVerifier.threshold else { return }
+        early.markCued(text, language: language, settings: settings)
+        onEarlyCue?(Utterance(
+            start: window.lowerBound, end: window.upperBound, text: text, latency: 0, meanLevelDB: nil,
+            predicted: .user, predictionConfidence: 1, voiceSlot: snapshot.userSlot, overlapped: false,
+            voiceMatch: match
+        ))
     }
 
     /// Splits each waiting line once the diarizer has final turns past its end, or all of them at the end of a session.

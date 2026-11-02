@@ -33,6 +33,8 @@ final class Pass1Model {
     private var freeSpeechAudio: [Float] = []
     private var sampleRate = 48_000.0
     private var needleTask: Task<Void, Never>?
+    /// Audio time up to which an early cue already buzzed, so the final line doesn't buzz again.
+    private var earlyCuedUntil = -1.0
 
     init(lab: FeasibilityModel) {
         self.lab = lab
@@ -42,9 +44,39 @@ final class Pass1Model {
             route = .setup
         }
         lab.onVoiceUtterance = { [weak self] utterance in self?.receive(utterance) }
+        lab.onEarlyCue = { [weak self] utterance in self?.receiveEarly(utterance) }
     }
 
     func copy(_ key: CopyKey) -> String { Copy.text(key, language) }
+
+    /// Set only by the CI screenshot fixture, so the strip shows a recording session.
+    var fixtureStartedAt: Date?
+    var showsRecording: Bool { lab.isRecording || fixtureStartedAt != nil }
+    var recordingStartedAt: Date? { fixtureStartedAt ?? lab.startedAt }
+
+    /// CI screenshots (AUTONITE_SCREEN=setup|live|cue): puts the screens in a known state so a
+    /// render can be compared with the UI reference. Never used on a phone.
+    func showFixture(_ name: String) {
+        language = .korean
+        setup.intentionText = "차분하고 예의 있게"
+        switch name {
+        case "setup":
+            route = .setup
+        default:
+            route = .live
+            fixtureStartedAt = Date().addingTimeInterval(-754)
+            screen.start()
+            guard name == "cue" else { return }
+            let phrase = "아 그거 진짜 별로야."
+            let utterance = Utterance(start: 0, end: 2, text: phrase, latency: 0, meanLevelDB: nil,
+                                      predicted: .user, predictionConfidence: 1, overlapped: false, voiceMatch: 0.8)
+            let outcome = ReadingPipeline.evaluate(utterance, language: language, settings: setup.confirmed)
+            screen.receive(outcome, phrase: phrase, language: language)
+            screen.openCue()
+            lastHeard = phrase
+            lastResult = .resultCue
+        }
+    }
 
     var hasProfile: Bool { lab.profile != nil }
 
@@ -134,6 +166,8 @@ final class Pass1Model {
         lab.language = language
         lastHeard = nil
         lastResult = nil
+        earlyCuedUntil = -1
+        lab.earlySettings = setup.confirmed
         screen.start()
         route = .live
         await lab.start()
@@ -141,6 +175,7 @@ final class Pass1Model {
     }
 
     func endSession() async {
+        lab.earlySettings = nil
         await lab.stop()
         screen.stop()
     }
@@ -169,6 +204,22 @@ final class Pass1Model {
         case .read(_, let cue): lastResult = cue ? .resultCue : .resultAligned
         }
         guard screen.receive(outcome, phrase: utterance.text, language: language) else { return }
+        // The early path already buzzed for this stretch of speech; the card now shows the final words.
+        if utterance.start <= earlyCuedUntil + 0.5 { return }
+        buzz()
+    }
+
+    /// A cue from in-progress text, while the user is still talking.
+    private func receiveEarly(_ utterance: Utterance) {
+        let outcome = ReadingPipeline.evaluate(utterance, language: language, settings: setup.confirmed)
+        guard screen.receive(outcome, phrase: utterance.text, language: language) else { return }
+        lastHeard = utterance.text
+        lastResult = .resultCue
+        earlyCuedUntil = utterance.end
+        buzz()
+    }
+
+    private func buzz() {
         haptics.pulse()
         needleTask?.cancel()
         needleTask = Task { [weak self] in

@@ -207,6 +207,20 @@ public enum VoiceVerifier {
         return others ? own : min(window.lowerBound, own.lowerBound)...max(window.upperBound, own.upperBound)
     }
 
+    /// The stretch of audio to verify while the user is still talking: the last `span` seconds up to
+    /// the diarizer's newest turn. Returns nil unless the user's slot covers at least
+    /// `minimumSeconds` of it and no other slot speaks anywhere in it.
+    public static func recentUserWindow(turns: [SpeakerTurn], userSlot: Int?, span: Double = 3) -> ClosedRange<Double>? {
+        guard let userSlot, let now = turns.map(\.end).max() else { return nil }
+        let window = max(0, now - span)...now
+        let inside = turns.filter { $0.start < window.upperBound && $0.end > window.lowerBound }
+        guard !inside.contains(where: { $0.slot != userSlot }) else { return nil }
+        let mine = inside.map { max($0.start, window.lowerBound)...min($0.end, window.upperBound) }
+        let covered = mine.reduce(0) { $0 + ($1.upperBound - $1.lowerBound) }
+        guard covered >= minimumSeconds, let first = mine.map(\.lowerBound).min(), let last = mine.map(\.upperBound).max() else { return nil }
+        return first...last
+    }
+
     /// User turns closer than this count as one stretch of speech.
     public static let joinGap = 0.3
 

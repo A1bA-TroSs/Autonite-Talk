@@ -29,3 +29,44 @@ public enum ReadingPipeline {
         return .read(readings, cue: !readings.mismatches.isEmpty)
     }
 }
+
+/// Reads the transcriber's in-progress (volatile) text, so a cue can fire while the user is still
+/// talking instead of after the sentence is finalised (Danny, 2026-11-02: the buzz came too late).
+///
+/// Only settled evidence counts: a harsh word as soon as it appears, and a register mismatch only
+/// for a sentence the transcriber has already closed with punctuation. The trailing unfinished
+/// sentence is never read for register, because a half-said word can look casual.
+public struct EarlyReader: Sendable {
+    /// Mismatch hits already cued in the current in-progress line.
+    public private(set) var cuedHits = 0
+
+    public init() {}
+
+    /// Counts mismatches in the settled part of in-progress text.
+    public static func hits(in text: String, language: SpeechLanguage, settings: CategorySettings) -> Int {
+        var count = 0
+        if settings.wordChoice == .gentle {
+            count += WordChoiceReader.harshWords(in: text).count
+        }
+        if language == .korean, settings.register == .politeExpected {
+            var sentences = KoreanRegisterReader.sentences(in: text)
+            let closed = text.trimmingCharacters(in: .whitespaces).last.map { ".?!…".contains($0) } ?? false
+            if !closed, !sentences.isEmpty { sentences.removeLast() }
+            count += sentences.filter { KoreanRegisterReader.register(ofSentence: $0) == .casual }.count
+        }
+        return count
+    }
+
+    /// True when the in-progress text holds a mismatch not yet cued in this line.
+    public mutating func hasNewMismatch(_ text: String, language: SpeechLanguage, settings: CategorySettings) -> Bool {
+        Self.hits(in: text, language: language, settings: settings) > cuedHits
+    }
+
+    /// Records that the current hits were cued, so the same words don't buzz twice.
+    public mutating func markCued(_ text: String, language: SpeechLanguage, settings: CategorySettings) {
+        cuedHits = Self.hits(in: text, language: language, settings: settings)
+    }
+
+    /// The transcriber finalised the line; the next in-progress text starts fresh.
+    public mutating func lineFinished() { cuedHits = 0 }
+}

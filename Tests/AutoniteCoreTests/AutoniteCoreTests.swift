@@ -162,6 +162,34 @@ private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
     #expect(VoiceVerifier.evidenceWindow(for: theirs, turns: turns, userSlot: 0) == 3.0...3.5)
 }
 
+@Test func earlyReaderCuesSettledMismatchesOnce() {
+    var early = EarlyReader()
+    let settings = CategorySettings.niceDefault
+    // A half-said trailing sentence is not read for register.
+    #expect(!early.hasNewMismatch("그거 내가 할", language: .korean, settings: settings))
+    // A harsh word counts as soon as it appears.
+    #expect(early.hasNewMismatch("아 씨발 이거", language: .korean, settings: settings))
+    early.markCued("아 씨발 이거", language: .korean, settings: settings)
+    #expect(!early.hasNewMismatch("아 씨발 이거 진짜", language: .korean, settings: settings))
+    // A closed casual sentence is a new hit.
+    #expect(early.hasNewMismatch("아 씨발 이거 진짜 별로야. 그리고", language: .korean, settings: settings))
+    early.lineFinished()
+    #expect(early.cuedHits == 0)
+    // Blunt and casual settings never cue early.
+    let relaxed = CategorySettings(register: .casualFine, wordChoice: .bluntFine)
+    #expect(!EarlyReader().hasNewMismatch("씨발 별로야.", language: .korean, settings: relaxed))
+}
+
+@Test func recentUserWindowNeedsTheUserAlone() {
+    let solo = [SpeakerTurn(slot: 0, start: 0, end: 4)]
+    #expect(VoiceVerifier.recentUserWindow(turns: solo, userSlot: 0) == 1...4)
+    let crowded = solo + [SpeakerTurn(slot: 1, start: 3.5, end: 4.2)]
+    #expect(VoiceVerifier.recentUserWindow(turns: crowded, userSlot: 0) == nil)
+    let brief = [SpeakerTurn(slot: 0, start: 3, end: 4)]
+    #expect(VoiceVerifier.recentUserWindow(turns: brief, userSlot: 0) == nil)
+    #expect(VoiceVerifier.recentUserWindow(turns: solo, userSlot: nil) == nil)
+}
+
 @Test func koreanSwearsAreReadAndInnocentWordsAreNot() {
     for phrase in ["아 씨발 진짜", "존나 짜증나네", "이 새끼가", "지랄하지 마", "미친 거 아니야?", "씨팔"] {
         #expect(WordChoiceReader.read(phrase, setting: .gentle) == .check, "\(phrase)")
