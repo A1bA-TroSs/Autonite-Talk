@@ -191,7 +191,8 @@ extension VoiceDiarizer: SpeakerEnrolling {
             recentEnd = 0
             inputSamples = 0
             // Profiles saved before multi-print enrolment get their prints from the stored audio.
-            enrolledPrints = [profile.voiceprint] + (profile.voiceprints ?? (try chunkPrints(profile.enrollmentAudio)))
+            let pieces = try profile.voiceprints ?? chunkPrints(profile.enrollmentAudio)
+            enrolledPrints = [profile.voiceprint] + pieces
             sessionPrints = []
             userSlot = try diarizer.enrollSpeaker(withAudio: profile.enrollmentAudio, sourceSampleRate: profile.sampleRate, named: "Me")?.index
             return userSlot
