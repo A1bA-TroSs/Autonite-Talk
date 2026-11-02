@@ -58,7 +58,7 @@ public struct EarlyReader: Sendable {
     }
 
     /// True when the in-progress text holds a mismatch not yet cued in this line.
-    public mutating func hasNewMismatch(_ text: String, language: SpeechLanguage, settings: CategorySettings) -> Bool {
+    public func hasNewMismatch(_ text: String, language: SpeechLanguage, settings: CategorySettings) -> Bool {
         Self.hits(in: text, language: language, settings: settings) > cuedHits
     }
 
