@@ -149,9 +149,8 @@ final class FeasibilityModel {
             verifyTask = Task.detached { [weak self] in
                 while !Task.isCancelled {
                     let snapshot = voice.snapshot()
-                    if let window = VoiceVerifier.recentUserWindow(turns: snapshot.turns, userSlot: snapshot.userSlot),
-                       let match = voice.voiceMatch(start: window.lowerBound, end: window.upperBound) {
-                        await self?.storeRecentCheck(window: window, match: match, slot: snapshot.userSlot)
+                    if let check = Self.checkRecent(voice, snapshot) {
+                        await self?.storeRecentCheck(window: check.window, match: check.match, slot: snapshot.userSlot)
                     } else {
                         await self?.clearRecentCheck()
                     }
@@ -323,17 +322,33 @@ final class FeasibilityModel {
             check = (recent.window, recent.match, recent.slot)
         } else {
             let snapshot = voice.snapshot()
-            guard let window = VoiceVerifier.recentUserWindow(turns: snapshot.turns, userSlot: snapshot.userSlot),
-                  let match = voice.voiceMatch(start: window.lowerBound, end: window.upperBound) else { return }
-            check = (window, match, snapshot.userSlot)
+            guard let recent = Self.checkRecent(voice, snapshot) else { return }
+            check = (recent.window, recent.match, snapshot.userSlot)
         }
-        guard check.match >= VoiceVerifier.threshold else { return }
         early.markCued(text, language: language, settings: settings)
         onEarlyCue?(Utterance(
             start: check.window.lowerBound, end: check.window.upperBound, text: text, latency: 0, meanLevelDB: nil,
             predicted: .user, predictionConfidence: 1, voiceSlot: check.slot, overlapped: false,
             voiceMatch: check.match
         ))
+    }
+
+    /// The voice check behind an early cue. The user's slot alone for 1.5 s and the normal
+    /// threshold; or, when the diarizer moved some of the user's speech to another slot, any
+    /// non-overlapping speech that clears the strict threshold. Returns only passing checks.
+    nonisolated private static func checkRecent(_ voice: VoiceDiarizer, _ snapshot: VoiceDiarizer.Snapshot) -> (window: ClosedRange<Double>, match: Double)? {
+        if let window = VoiceVerifier.recentUserWindow(turns: snapshot.turns, userSlot: snapshot.userSlot),
+           let match = voice.voiceMatch(start: window.lowerBound, end: window.upperBound),
+           match >= VoiceVerifier.threshold {
+            return (window, match)
+        }
+        if snapshot.userSlot != nil,
+           let window = VoiceVerifier.recentSpeechWindow(turns: snapshot.turns),
+           let match = voice.voiceMatch(start: window.lowerBound, end: window.upperBound),
+           match >= VoiceVerifier.strictThreshold {
+            return (window, match)
+        }
+        return nil
     }
 
     private func storeRecentCheck(window: ClosedRange<Double>, match: Double, slot: Int?) {
@@ -354,8 +369,15 @@ final class FeasibilityModel {
             for split in pieces {
                 // Only slot-Me speech is checked against the enrolled voice; the rest can't be called Me anyway.
                 let evidence = VoiceVerifier.evidenceWindow(for: split, turns: snapshot.turns, userSlot: snapshot.userSlot)
-                let match = split.label == .user ? voice.voiceMatch(start: evidence.lowerBound, end: evidence.upperBound) : nil
-                let piece = VoiceVerifier.verify(split, similarity: match, evidence: evidence)
+                // Slot-other speech is checked too: the diarizer's slots drift when the user's tone
+                // changes, and a clearly matching piece is reclaimed (strict threshold).
+                let checkable = split.label == .user || (split.label == .other && !split.overlapped && snapshot.userSlot != nil)
+                let match = checkable ? voice.voiceMatch(start: evidence.lowerBound, end: evidence.upperBound) : nil
+                let piece = VoiceVerifier.reclaim(VoiceVerifier.verify(split, similarity: match, evidence: evidence), similarity: match, evidence: evidence)
+                // Clearly-you speech from today joins the session's voice prints.
+                if piece.label == .user, let match, match >= VoiceVerifier.strictThreshold, piece.duration >= 2 {
+                    voice.adapt(start: piece.start, end: piece.end)
+                }
                 utterances.append(Utterance(
                     start: piece.start, end: piece.end, text: piece.text, latency: line.latency,
                     meanLevelDB: engine?.levels.meanDB(from: piece.start, to: piece.end),

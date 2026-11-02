@@ -224,6 +224,42 @@ public enum VoiceVerifier {
     /// User turns closer than this count as one stretch of speech.
     public static let joinGap = 0.3
 
+    /// A higher bar for speech the diarizer did not put in the user's slot. Its slots drift when the
+    /// user changes tone, so a piece that sounds clearly like the user is reclaimed, but only above
+    /// this, which sits over every other-voice score seen so far (0.29-0.59 on 2026-11-01).
+    public static let strictThreshold = 0.72
+
+    /// The closest of several enrolled voiceprints, so varied tones and pitches all match.
+    public static func bestMatch(_ print: [Float], against prints: [[Float]]) -> Double? {
+        prints.compactMap { cosineSimilarity(print, $0) }.max()
+    }
+
+    /// Relabels a non-overlapped `other` piece as `user` when it is long enough and clearly the
+    /// enrolled voice (at least `strictThreshold`). Everything else is returned unchanged.
+    public static func reclaim(_ piece: VoicePiece, similarity: Double?, evidence: ClosedRange<Double>? = nil) -> VoicePiece {
+        guard piece.label == .other, !piece.overlapped, let similarity, similarity >= strictThreshold else { return piece }
+        let seconds = evidence.map { $0.upperBound - $0.lowerBound } ?? piece.duration
+        guard seconds >= minimumSeconds else { return piece }
+        return VoicePiece(text: piece.text, start: piece.start, end: piece.end, slot: piece.slot,
+                          label: .user, confidence: 1, overlapped: false)
+    }
+
+    /// The last `span` seconds of speech when no two slots talk at the same moment in it and there is
+    /// at least `minimumSeconds` of speech. Used, with `strictThreshold`, when the diarizer has put
+    /// some of the user's own speech in another slot.
+    public static func recentSpeechWindow(turns: [SpeakerTurn], span: Double = 3) -> ClosedRange<Double>? {
+        guard let now = turns.map(\.end).max() else { return nil }
+        let window = max(0, now - span)...now
+        let inside = turns.filter { $0.start < window.upperBound && $0.end > window.lowerBound }
+            .map { SpeakerTurn(slot: $0.slot, start: max($0.start, window.lowerBound), end: min($0.end, window.upperBound)) }
+        for a in inside {
+            for b in inside where b.slot != a.slot && b.start < a.end && a.start < b.end { return nil }
+        }
+        let covered = inside.reduce(0) { $0 + ($1.end - $1.start) }
+        guard covered >= minimumSeconds, let first = inside.map(\.start).min(), let last = inside.map(\.end).max() else { return nil }
+        return first...last
+    }
+
     public static func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Double? {
         guard a.count == b.count, !a.isEmpty else { return nil }
         var dot = 0.0, normA = 0.0, normB = 0.0

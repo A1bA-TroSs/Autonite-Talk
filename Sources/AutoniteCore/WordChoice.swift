@@ -74,6 +74,16 @@ public enum WordChoiceReader {
             + koreanHarsh.filter { koreanInnocent.reduce(phrase) { $0.replacingOccurrences(of: $1, with: " ") }.contains($0) }
     }
 
+    /// How many times harsh words occur, counting repeats, so a second swear in one long
+    /// sentence is a new hit for the early cue.
+    public static func harshOccurrences(in phrase: String) -> Int {
+        let english = EnglishRegisterReader.normalized(phrase)
+        let korean = koreanInnocent.reduce(phrase) { $0.replacingOccurrences(of: $1, with: " ") }
+        let en = englishHarsh.reduce(0) { $0 + english.components(separatedBy: " " + $1 + " ").count - 1 }
+        let ko = koreanHarsh.reduce(0) { $0 + korean.components(separatedBy: $1).count - 1 }
+        return en + ko
+    }
+
     public static func read(_ phrase: String, setting: WordChoiceSetting) -> Reading {
         guard phrase.contains(where: \.isLetter) else { return .unknown }
         switch setting {

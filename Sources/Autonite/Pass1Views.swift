@@ -264,7 +264,8 @@ struct LiveView: View {
             VStack(spacing: 16) {
                 // The single recording indicator (DESIGN.md).
                 LiveRecordingStrip(model: model)
-                MeterView(needle: model.screen.needle, label: centerLabel, detail: centerDetail, cue: isCue)
+                MeterView(needle: model.screen.needle, label: centerLabel, detail: centerDetail, cue: isCue,
+                          level: model.showsRecording ? min(max((model.lab.levelDB + 55) / 35, 0), 1) : 0)
                     .aspectRatio(1, contentMode: .fit)
                     .frame(maxWidth: 380, maxHeight: .infinity)
                     .layoutPriority(1)
@@ -485,6 +486,8 @@ struct MeterView: View {
     let label: String
     let detail: String
     var cue = false
+    /// Voice level 0...1 while listening; the needle twitches with it.
+    var level = 0.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -494,7 +497,8 @@ struct MeterView: View {
             let ring = size * 0.1
             let radius = size / 2 - size * 0.1
             let span = 360 / Double(MeterGeometry.segmentCount)
-            let active = MeterGeometry.segment(containing: MeterGeometry.needleAngle(needle))
+            let angle = needle > 0.5 ? MeterGeometry.needleAngle(needle) : MeterGeometry.listeningAngle(level: level)
+            let active = MeterGeometry.segment(containing: angle)
             ZStack {
                 ForEach(MeterGeometry.segmentAngles(), id: \.self) { start in
                     let lit = start == active
@@ -513,12 +517,15 @@ struct MeterView: View {
                     }
                     .stroke(MeterGeometry.isAmber(angle) && cue ? Palette.amber : Palette.liveMuted.opacity(major ? 0.9 : 0.55), lineWidth: major ? 2 : 1)
                 }
-                Path { path in
-                    path.move(to: center)
-                    path.addLine(to: point(center, radius + ring / 2, MeterGeometry.needleAngle(needle)))
-                }
-                .stroke(Palette.liveText, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.4), value: needle)
+                // A rotated bar, so the swing animates (a Path would jump).
+                Capsule()
+                    .fill(Palette.liveText)
+                    .frame(width: radius + ring / 2, height: 2.5)
+                    .offset(x: (radius + ring / 2) / 2)
+                    .rotationEffect(.degrees(angle))
+                    .position(center)
+                    // Slow and soft while listening; a fast slam to the right on a cue.
+                    .animation(reduceMotion ? nil : (needle > 0.5 ? .spring(response: 0.18, dampingFraction: 0.55) : .easeInOut(duration: 0.45)), value: angle)
                 Circle()
                     .fill(Palette.liveText)
                     .frame(width: 10, height: 10)

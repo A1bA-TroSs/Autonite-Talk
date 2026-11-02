@@ -12,12 +12,17 @@ public struct VoiceProfile: Codable, Equatable, Sendable {
     public var sampleRate: Double
     /// WeSpeaker voiceprint of the enrolment, compared with each slot-Me piece (`VoiceVerifier`).
     public var voiceprint: [Float]
+    /// Voiceprints of short stretches of the enrolment (different sentences, tones and pitches).
+    /// A live piece is compared with each and the closest counts, so the user doesn't have to
+    /// speak in one tone to be recognised (Danny, 2026-11-02). Nil in profiles saved before this.
+    public var voiceprints: [[Float]]?
     public var createdAt: Date
 
-    public init(enrollmentAudio: [Float], sampleRate: Double, voiceprint: [Float], createdAt: Date = Date()) {
+    public init(enrollmentAudio: [Float], sampleRate: Double, voiceprint: [Float], voiceprints: [[Float]]? = nil, createdAt: Date = Date()) {
         self.enrollmentAudio = enrollmentAudio
         self.sampleRate = sampleRate
         self.voiceprint = voiceprint
+        self.voiceprints = voiceprints
         self.createdAt = createdAt
     }
 }

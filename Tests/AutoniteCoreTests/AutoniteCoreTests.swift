@@ -171,6 +171,8 @@ private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
     #expect(early.hasNewMismatch("아 씨발 이거", language: .korean, settings: settings))
     early.markCued("아 씨발 이거", language: .korean, settings: settings)
     #expect(!early.hasNewMismatch("아 씨발 이거 진짜", language: .korean, settings: settings))
+    // The same swear again later in one long sentence is a new hit.
+    #expect(early.hasNewMismatch("아 씨발 이거 진짜 왜 이래 씨발", language: .korean, settings: settings))
     // A closed casual sentence is a new hit.
     #expect(early.hasNewMismatch("아 씨발 이거 진짜 별로야. 그리고", language: .korean, settings: settings))
     early.lineFinished()
@@ -188,6 +190,21 @@ private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
     let brief = [SpeakerTurn(slot: 0, start: 3, end: 4)]
     #expect(VoiceVerifier.recentUserWindow(turns: brief, userSlot: 0) == nil)
     #expect(VoiceVerifier.recentUserWindow(turns: solo, userSlot: nil) == nil)
+}
+
+@Test func variedVoiceMatchesTheClosestPrintAndDriftedSlotsAreReclaimedStrictly() {
+    #expect(VoiceVerifier.bestMatch([1, 0], against: [[0, 1], [1, 0]]) == 1)
+    let drifted = VoicePiece(text: "x", start: 0, end: 2, slot: 1, label: .other, confidence: 1, overlapped: false)
+    #expect(VoiceVerifier.reclaim(drifted, similarity: 0.8).label == .user)
+    #expect(VoiceVerifier.reclaim(drifted, similarity: 0.68).label == .other)
+    let short = VoicePiece(text: "x", start: 0, end: 1, slot: 1, label: .other, confidence: 1, overlapped: false)
+    #expect(VoiceVerifier.reclaim(short, similarity: 0.9).label == .other)
+    let both = VoicePiece(text: "x", start: 0, end: 2, slot: 1, label: .other, confidence: 1, overlapped: true)
+    #expect(VoiceVerifier.reclaim(both, similarity: 0.9).label == .other)
+    // Sequential speakers are fine for the speech window; simultaneous ones are not.
+    let turns = [SpeakerTurn(slot: 0, start: 0, end: 2), SpeakerTurn(slot: 1, start: 2, end: 4)]
+    #expect(VoiceVerifier.recentSpeechWindow(turns: turns) == 1...4)
+    #expect(VoiceVerifier.recentSpeechWindow(turns: turns + [SpeakerTurn(slot: 0, start: 3, end: 3.5)]) == nil)
 }
 
 @Test func koreanSwearsAreReadAndInnocentWordsAreNot() {
@@ -577,6 +594,9 @@ private final class FakeEnroller: SpeakerEnrolling {
     #expect(MeterGeometry.needleAngle(0) == 270)
     #expect(MeterGeometry.tickRange.contains(MeterGeometry.needleAngle(1)))
     #expect(MeterGeometry.segment(containing: 270) != nil)
+    // Talking only twitches the needle; it never reaches amber without a cue.
+    #expect(!MeterGeometry.isAmber(MeterGeometry.listeningAngle(level: 1)))
+    #expect(MeterGeometry.listeningAngle(level: 0) < MeterGeometry.listeningAngle(level: 1))
     // Ring segments still go all the way round, keeping the circle.
     #expect(MeterGeometry.segmentAngles().contains { $0 > 0 && $0 < 180 })
     #expect(MeterGeometry.isAmber(MeterGeometry.needleAngle(1)))

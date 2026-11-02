@@ -46,7 +46,7 @@ public struct EarlyReader: Sendable {
     public static func hits(in text: String, language: SpeechLanguage, settings: CategorySettings) -> Int {
         var count = 0
         if settings.wordChoice == .gentle {
-            count += WordChoiceReader.harshWords(in: text).count
+            count += WordChoiceReader.harshOccurrences(in: text)
         }
         if language == .korean, settings.register == .politeExpected {
             var sentences = KoreanRegisterReader.sentences(in: text)

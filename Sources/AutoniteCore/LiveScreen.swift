@@ -141,8 +141,9 @@ public struct LiveScreen: Equatable, Sendable {
 public enum MeterGeometry {
     /// The upper arc that carries ticks.
     public static let tickRange = 200.0...340.0
-    /// The needle sweeps from rest (straight up) to the amber zone on the right.
-    public static let needleRange = 270.0...325.0
+    /// The needle rests straight up, twitches a little with the voice, and slams to the right end
+    /// of the ticked arc on a cue (Danny, 2026-11-02).
+    public static let needleRange = 270.0...340.0
     public static let segmentCount = 10
 
     public static func needleAngle(_ position: Double) -> Double {
@@ -174,5 +175,11 @@ public enum MeterGeometry {
     /// The right end of the reachable arc is amber.
     public static func isAmber(_ angle: Double) -> Bool {
         angle >= 305 && angle <= tickRange.upperBound
+    }
+
+    /// Where the needle sits while listening: a small twitch around rest that follows the voice
+    /// level (0 = silence, 1 = loud), from a few degrees left of rest to well short of amber.
+    public static func listeningAngle(level: Double) -> Double {
+        needleRange.lowerBound - 6 + 24 * min(max(level, 0), 1)
     }
 }
