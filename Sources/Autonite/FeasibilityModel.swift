@@ -54,6 +54,10 @@ final class FeasibilityModel {
     private var voiceFeed: AsyncStream<([Float], Double)>.Continuation?
     private var voiceFeedTask: Task<Void, Never>?
     private var resolveTask: Task<Void, Never>?
+    /// Background voice check of the last few seconds, kept fresh so an early cue doesn't wait
+    /// for a voiceprint to be computed when the harsh word arrives.
+    private var verifyTask: Task<Void, Never>?
+    @ObservationIgnored private var recentCheck: (at: Date, window: ClosedRange<Double>, match: Double, slot: Int?)?
     private var pending: [PendingLine] = []
 
     /// A final transcript line waiting for the diarizer to catch up with its end time.
@@ -141,6 +145,19 @@ final class FeasibilityModel {
                     try? voice.feed(samples, sampleRate: rate)
                 }
             }
+            recentCheck = nil
+            verifyTask = Task.detached { [weak self] in
+                while !Task.isCancelled {
+                    let snapshot = voice.snapshot()
+                    if let window = VoiceVerifier.recentUserWindow(turns: snapshot.turns, userSlot: snapshot.userSlot),
+                       let match = voice.voiceMatch(start: window.lowerBound, end: window.upperBound) {
+                        await self?.storeRecentCheck(window: window, match: match, slot: snapshot.userSlot)
+                    } else {
+                        await self?.clearRecentCheck()
+                    }
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+            }
             resolveTask = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .milliseconds(200))
@@ -179,6 +196,8 @@ final class FeasibilityModel {
         if sessionMethod == .voice {
             resolveTask?.cancel()
             resolveTask = nil
+            verifyTask?.cancel()
+            verifyTask = nil
             voiceFeed?.finish()
             voiceFeed = nil
             await voiceFeedTask?.value
@@ -298,17 +317,30 @@ final class FeasibilityModel {
     private func readEarly(_ text: String) {
         guard sessionMethod == .voice, let settings = earlySettings,
               early.hasNewMismatch(text, language: language, settings: settings) else { return }
-        let snapshot = voice.snapshot()
-        guard let window = VoiceVerifier.recentUserWindow(turns: snapshot.turns, userSlot: snapshot.userSlot),
-              let match = voice.voiceMatch(start: window.lowerBound, end: window.upperBound),
-              match >= VoiceVerifier.threshold else { return }
+        // Use the background check when it is fresh; compute one now only when it isn't.
+        let check: (window: ClosedRange<Double>, match: Double, slot: Int?)
+        if let recent = recentCheck, Date().timeIntervalSince(recent.at) < 0.8 {
+            check = (recent.window, recent.match, recent.slot)
+        } else {
+            let snapshot = voice.snapshot()
+            guard let window = VoiceVerifier.recentUserWindow(turns: snapshot.turns, userSlot: snapshot.userSlot),
+                  let match = voice.voiceMatch(start: window.lowerBound, end: window.upperBound) else { return }
+            check = (window, match, snapshot.userSlot)
+        }
+        guard check.match >= VoiceVerifier.threshold else { return }
         early.markCued(text, language: language, settings: settings)
         onEarlyCue?(Utterance(
-            start: window.lowerBound, end: window.upperBound, text: text, latency: 0, meanLevelDB: nil,
-            predicted: .user, predictionConfidence: 1, voiceSlot: snapshot.userSlot, overlapped: false,
-            voiceMatch: match
+            start: check.window.lowerBound, end: check.window.upperBound, text: text, latency: 0, meanLevelDB: nil,
+            predicted: .user, predictionConfidence: 1, voiceSlot: check.slot, overlapped: false,
+            voiceMatch: check.match
         ))
     }
+
+    private func storeRecentCheck(window: ClosedRange<Double>, match: Double, slot: Int?) {
+        recentCheck = (Date(), window, match, slot)
+    }
+
+    private func clearRecentCheck() { recentCheck = nil }
 
     /// Splits each waiting line once the diarizer has final turns past its end, or all of them at the end of a session.
     private func resolvePending(final: Bool) {

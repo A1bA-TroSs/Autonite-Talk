@@ -168,6 +168,7 @@ final class Pass1Model {
         lastResult = nil
         earlyCuedUntil = -1
         lab.earlySettings = setup.confirmed
+        haptics.prepare()
         screen.start()
         route = .live
         await lab.start()
