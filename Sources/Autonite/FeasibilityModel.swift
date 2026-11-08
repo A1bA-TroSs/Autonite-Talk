@@ -47,6 +47,7 @@ final class FeasibilityModel {
     var earlySettings: CategorySettings?
     var onEarlyCue: ((Utterance) -> Void)?
     private var early = EarlyReader()
+    @ObservationIgnored private var pauseTask: Task<Void, Never>?
     /// Voice attribution is used when the model is loaded and a voice is enrolled; otherwise level.
     var method: AttributionMethod { voiceStatus == .ready && isEnrolled ? .voice : .level }
     private(set) var sessionMethod: AttributionMethod = .level
@@ -57,6 +58,8 @@ final class FeasibilityModel {
     /// Background voice check of the last few seconds, kept fresh so an early cue doesn't wait
     /// for a voiceprint to be computed when the harsh word arrives.
     private var verifyTask: Task<Void, Never>?
+    /// Whether the last few seconds passed the voice check, for the live readout. Nil before any check.
+    private(set) var liveVoiceVerified: Bool?
     @ObservationIgnored private var recentCheck: (at: Date, window: ClosedRange<Double>, match: Double, slot: Int?)?
     private var pending: [PendingLine] = []
 
@@ -146,6 +149,7 @@ final class FeasibilityModel {
                 }
             }
             recentCheck = nil
+            liveVoiceVerified = nil
             verifyTask = Task.detached { [weak self] in
                 while !Task.isCancelled {
                     let snapshot = voice.snapshot()
@@ -229,8 +233,16 @@ final class FeasibilityModel {
         case .volatile(let text):
             volatileText = text
             readEarly(text)
+            // No new words for a moment: read the piece so far as a finished clause.
+            pauseTask?.cancel()
+            pauseTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(EarlyReader.pauseSeconds))
+                guard !Task.isCancelled, let self, self.volatileText == text else { return }
+                self.readEarly(text, closed: true)
+            }
         case .final(let text, let start, let end, let latency, let words):
             volatileText = ""
+            pauseTask?.cancel()
             early.lineFinished()
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             if sessionMethod == .voice {
@@ -313,9 +325,9 @@ final class FeasibilityModel {
     /// Cues on in-progress text as soon as it holds a settled mismatch, when the last seconds of
     /// audio are the user's slot alone and match the enrolled voice. Otherwise it waits and tries
     /// again on the next update, and the final line still goes through the full gate.
-    private func readEarly(_ text: String) {
+    private func readEarly(_ text: String, closed: Bool = false) {
         guard sessionMethod == .voice, let settings = earlySettings,
-              early.hasNewMismatch(text, language: language, settings: settings) else { return }
+              early.hasNewMismatch(text, language: language, settings: settings, closed: closed) else { return }
         // Use the background check when it is fresh; compute one now only when it isn't.
         let check: (window: ClosedRange<Double>, match: Double, slot: Int?)
         if let recent = recentCheck, Date().timeIntervalSince(recent.at) < 0.8 {
@@ -325,9 +337,9 @@ final class FeasibilityModel {
             guard let recent = Self.checkRecent(voice, snapshot) else { return }
             check = (recent.window, recent.match, snapshot.userSlot)
         }
-        early.markCued(text, language: language, settings: settings)
+        early.markCued(text, language: language, settings: settings, closed: closed)
         onEarlyCue?(Utterance(
-            start: check.window.lowerBound, end: check.window.upperBound, text: text, latency: 0, meanLevelDB: nil,
+            start: check.window.lowerBound, end: check.window.upperBound, text: Self.recentPiece(text), latency: 0, meanLevelDB: nil,
             predicted: .user, predictionConfidence: 1, voiceSlot: check.slot, overlapped: false,
             voiceMatch: check.match
         ))
@@ -351,11 +363,20 @@ final class FeasibilityModel {
         return nil
     }
 
-    private func storeRecentCheck(window: ClosedRange<Double>, match: Double, slot: Int?) {
-        recentCheck = (Date(), window, match, slot)
+    /// The last few words of in-progress text: the piece the cue is about, not the whole long sentence.
+    nonisolated static func recentPiece(_ text: String, words: Int = 8) -> String {
+        text.split(separator: " ").suffix(words).joined(separator: " ")
     }
 
-    private func clearRecentCheck() { recentCheck = nil }
+    private func storeRecentCheck(window: ClosedRange<Double>, match: Double, slot: Int?) {
+        recentCheck = (Date(), window, match, slot)
+        if liveVoiceVerified != true { liveVoiceVerified = true }
+    }
+
+    private func clearRecentCheck() {
+        recentCheck = nil
+        if liveVoiceVerified != false { liveVoiceVerified = false }
+    }
 
     /// Splits each waiting line once the diarizer has final turns past its end, or all of them at the end of a session.
     private func resolvePending(final: Bool) {

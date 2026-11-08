@@ -43,29 +43,35 @@ public struct EarlyReader: Sendable {
     public init() {}
 
     /// Counts mismatches in the settled part of in-progress text.
-    public static func hits(in text: String, language: SpeechLanguage, settings: CategorySettings) -> Int {
+    /// `closed` means the speaker paused after the text (see `pauseSeconds`), so its last clause is
+    /// finished and its ending can be read for register, like a sentence the recogniser closed.
+    public static func hits(in text: String, language: SpeechLanguage, settings: CategorySettings, closed: Bool = false) -> Int {
         var count = 0
         if settings.wordChoice == .gentle {
             count += WordChoiceReader.harshOccurrences(in: text)
         }
         if language == .korean, settings.register == .politeExpected {
             var sentences = KoreanRegisterReader.sentences(in: text)
-            let closed = text.trimmingCharacters(in: .whitespaces).last.map { ".?!…".contains($0) } ?? false
-            if !closed, !sentences.isEmpty { sentences.removeLast() }
+            let punctuated = text.trimmingCharacters(in: .whitespaces).last.map { ".?!…".contains($0) } ?? false
+            if !(closed || punctuated), !sentences.isEmpty { sentences.removeLast() }
             count += sentences.filter { KoreanRegisterReader.register(ofSentence: $0) == .casual }.count
         }
         return count
     }
 
     /// True when the in-progress text holds a mismatch not yet cued in this line.
-    public func hasNewMismatch(_ text: String, language: SpeechLanguage, settings: CategorySettings) -> Bool {
-        Self.hits(in: text, language: language, settings: settings) > cuedHits
+    public func hasNewMismatch(_ text: String, language: SpeechLanguage, settings: CategorySettings, closed: Bool = false) -> Bool {
+        Self.hits(in: text, language: language, settings: settings, closed: closed) > cuedHits
     }
 
     /// Records that the current hits were cued, so the same words don't buzz twice.
-    public mutating func markCued(_ text: String, language: SpeechLanguage, settings: CategorySettings) {
-        cuedHits = Self.hits(in: text, language: language, settings: settings)
+    public mutating func markCued(_ text: String, language: SpeechLanguage, settings: CategorySettings, closed: Bool = false) {
+        cuedHits = Self.hits(in: text, language: language, settings: settings, closed: closed)
     }
+
+    /// A pause this long with no new words closes the current clause, so a long sentence is read in
+    /// short pieces as it is spoken rather than all at once at its end (Danny, 2026-11-08).
+    public static let pauseSeconds = 0.6
 
     /// The transcriber finalised the line; the next in-progress text starts fresh.
     public mutating func lineFinished() { cuedHits = 0 }

@@ -80,6 +80,13 @@ final class Pass1Model {
 
     var hasProfile: Bool { lab.profile != nil }
 
+    /// The phrase being spoken right now (the recogniser's in-progress text) and a running verdict,
+    /// so the user sees the check while still talking (Danny, 2026-11-08).
+    var liveText: String { lab.volatileText.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var liveFlagged: Bool {
+        !liveText.isEmpty && EarlyReader.hits(in: liveText, language: language, settings: setup.confirmed) > 0
+    }
+
     /// The session fell back to level attribution, which never reads the user's words.
     var voiceCheckOff: Bool { lab.isRecording && lab.sessionMethod != .voice }
 

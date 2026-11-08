@@ -278,6 +278,7 @@ struct LiveView: View {
                         .foregroundStyle(Palette.amber)
                         .multilineTextAlignment(.center)
                 }
+                LiveNowRow(model: model)
                 LastHeardRow(model: model)
                 IntentionRow(model: model)
                 if model.screen.phase == .stopped {
@@ -348,6 +349,42 @@ private struct LiveRecordingStrip: View {
             levels.append(min(max((db + 60) / 60, 0), 1))
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// What is being said right now, whether it sounds like the user, and a running verdict.
+private struct LiveNowRow: View {
+    let model: Pass1Model
+
+    var body: some View {
+        if !model.liveText.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(model.copy(.liveNow)).foregroundStyle(Palette.liveMuted)
+                    Spacer()
+                    chip(model.lab.liveVoiceVerified == true ? model.copy(.voiceYou) : model.copy(.voiceChecking),
+                         color: model.lab.liveVoiceVerified == true ? Palette.primary : Palette.liveMuted)
+                    chip(model.liveFlagged ? model.copy(.liveFlagged) : model.copy(.liveClean),
+                         color: model.liveFlagged ? Palette.amber : Palette.primary)
+                }
+                .font(.caption)
+                Text("“\(String(model.liveText.suffix(60)))”")
+                    .font(.subheadline)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(12)
+            .background(Palette.liveSurface.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
+            .animation(.easeOut(duration: 0.15), value: model.liveFlagged)
+        }
+    }
+
+    private func chip(_ text: String, color: Color) -> some View {
+        Text(text)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.18), in: Capsule())
+            .foregroundStyle(color)
     }
 }
 

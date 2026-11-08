@@ -177,6 +177,10 @@ private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
     #expect(early.hasNewMismatch("아 씨발 이거 진짜 별로야. 그리고", language: .korean, settings: settings))
     early.lineFinished()
     #expect(early.cuedHits == 0)
+    // After a short pause the unfinished clause counts: its ending is read for register.
+    #expect(!early.hasNewMismatch("그거 내가 할게", language: .korean, settings: settings))
+    #expect(early.hasNewMismatch("그거 내가 할게", language: .korean, settings: settings, closed: true))
+    #expect(!early.hasNewMismatch("그거 제가 할게요", language: .korean, settings: settings, closed: true))
     // Blunt and casual settings never cue early.
     let relaxed = CategorySettings(register: .casualFine, wordChoice: .bluntFine)
     #expect(!EarlyReader().hasNewMismatch("씨발 별로야.", language: .korean, settings: relaxed))

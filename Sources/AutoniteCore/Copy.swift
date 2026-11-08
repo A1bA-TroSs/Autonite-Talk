@@ -30,6 +30,8 @@ public enum CopyKey: String, CaseIterable, Sendable {
     case appSubtitle, recording, intentionCaption, intentionNone, checkAlignmentTitle, checkAlignmentDetail
     case lastHeard, resultCue, resultAligned, quietUnsure, quietOther, quietOverlap, quietVoice, quietNoWords, voiceCheckOff
     case labTitle, close
+    // Live readout while the user is still talking
+    case liveNow, voiceYou, voiceChecking, liveFlagged, liveClean
 }
 
 public enum Copy {
@@ -130,6 +132,11 @@ public enum Copy {
         .voiceCheckOff: "Voice check isn't running, so no cues can be given. End the session and start again.",
         .labTitle: "Lab",
         .close: "Close",
+        .liveNow: "Hearing now",
+        .voiceYou: "Your voice",
+        .voiceChecking: "Checking voice",
+        .liveFlagged: "Something to watch",
+        .liveClean: "Fine so far",
     ]
 
     public static let korean: [CopyKey: String] = [
@@ -219,5 +226,10 @@ public enum Copy {
         .voiceCheckOff: "목소리 확인이 꺼져 있어서 신호를 보낼 수 없어요. 대화를 끝내고 다시 시작해 주세요.",
         .labTitle: "실험실",
         .close: "닫기",
+        .liveNow: "지금 듣는 말",
+        .voiceYou: "내 목소리",
+        .voiceChecking: "목소리 확인 중",
+        .liveFlagged: "주의할 말이 있어요",
+        .liveClean: "지금까지 괜찮아요",
     ]
 }
