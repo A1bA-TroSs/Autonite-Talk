@@ -45,6 +45,32 @@ enum SelfTest {
         expect(model.report.jsonString().contains("deviceModel"), "report did not encode")
         expect(model.state == .idle && !model.isRecording, "model did not start idle")
 
+        // Pass 1 paths: enrolment, a saved profile, and a reading through the own-speech gate.
+        var onboarding = Onboarding()
+        onboarding.answerBiometricConsent(true)
+        onboarding.update { $0.confirmPlacement() }
+        expect(onboarding.mayRecordEnrolment, "enrolment could not record after consent")
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("selftest-profile")
+        let store = VoiceProfileStore(directory: folder)
+        do {
+            try store.save(VoiceProfile(enrollmentAudio: [0, 0.1], sampleRate: 16_000, voiceprint: [1, 0]))
+            expect(try store.load() != nil, "profile did not reload")
+            try store.delete()
+            expect(try store.load() == nil, "profile was not deleted")
+        } catch {
+            failures.append("profile store failed: \(error.localizedDescription)")
+        }
+        let mine = Utterance(start: 0, end: 2, text: "그거 내가 할게.", latency: 0, meanLevelDB: nil,
+                             predicted: .user, predictionConfidence: 0.9, overlapped: false, voiceMatch: 0.8)
+        var screen = LiveScreen()
+        screen.start()
+        let cued = screen.receive(ReadingPipeline.evaluate(mine, language: .korean, settings: .niceDefault), phrase: mine.text, language: .korean)
+        expect(cued, "a 반말 phrase under polite settings did not cue")
+        let theirs = Utterance(start: 0, end: 2, text: mine.text, latency: 0, meanLevelDB: nil, predicted: .other, predictionConfidence: 1)
+        expect(ReadingPipeline.evaluate(theirs, language: .korean, settings: .niceDefault) != .read(PhraseReader.read(theirs.text, language: .korean, settings: .niceDefault), cue: true),
+               "the other speaker's words were read")
+        log("selftest pass1 paths checked")
+
         if failures.isEmpty {
             log(sentinel)
             exit(0)
