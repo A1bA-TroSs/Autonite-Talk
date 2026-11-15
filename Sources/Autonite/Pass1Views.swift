@@ -596,6 +596,11 @@ struct CueCard: View {
                 Spacer()
                 Menu {
                     Button(model.copy(.cueMarkInaccurate)) { model.markInaccurate() }
+                    // The user's word list (research 2026-11-16 §5.6): a word that fits them can be
+                    // muted right here.
+                    ForEach(model.harshWords(on: cue), id: \.self) { word in
+                        Button("\(model.copy(.recapMute)): “\(word)”", systemImage: "speaker.slash") { model.muteFromCard(word) }
+                    }
                     Button(model.copy(.cueDismiss)) { model.screen.dismissCue() }
                 } label: {
                     Image(systemName: "ellipsis")

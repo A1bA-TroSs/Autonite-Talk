@@ -485,25 +485,48 @@ final class Pass1Model {
 
     func addWord(_ word: String) {
         words.add(word)
-        saveWords()
+        wordsChanged()
     }
 
-    /// Stops flagging a word, for example from a recap moment marked wrong.
+    /// Stops flagging a word, from the cue card or from a recap moment marked wrong.
     func mute(_ word: String) {
         words.mute(word)
-        saveWords()
+        wordsChanged()
     }
 
     func resetWord(_ word: String) {
         words.reset(word)
-        saveWords()
+        wordsChanged()
     }
 
     func isMuted(_ word: String) -> Bool { words.muted.contains(word) }
 
     func deleteWords() {
         words = PersonalWords()
+        wordsChanged()
+    }
+
+    /// The harsh words on a word-choice card, which the user can stop flagging from the card.
+    func harshWords(on cue: Cue) -> [String] {
+        guard cue.categories.contains(.wordChoice) else { return [] }
+        let list = PersonalWords(added: words.added)
+        return ([cue.phrase] + [cue.firstHeard].compactMap { $0 })
+            .flatMap { WordChoiceReader.harshWords(in: $0, words: list) }
+            .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+    }
+
+    /// Stops flagging a word straight from the card and closes it.
+    func muteFromCard(_ word: String) {
+        mute(word)
+        screen.dismissCue()
+    }
+
+    /// Saves the list, and a running session reads with it from the next phrase on.
+    private func wordsChanged() {
         saveWords()
+        guard route == .live, lab.earlySettings != nil else { return }
+        sessionSettings = sessionSettings.with(words)
+        lab.earlySettings = sessionSettings
     }
 
     private static var wordsFile: URL? {
