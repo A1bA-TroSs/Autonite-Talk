@@ -89,23 +89,25 @@ public struct SessionRecap: Equatable, Sendable {
         return moment.id
     }
 
-    /// Applies Whisper's second listen of the piece from `start` to `end`. The flagged moment of
-    /// that piece takes Whisper's words: found by `piece` when given, otherwise by overlap.
-    /// Elsewhere, harsh words only Whisper heard become an uncued moment so the user can see what
-    /// it caught, but only when Whisper was `sure` of the piece (`SecondReading.isSure`); they
-    /// never cue.
+    /// Applies Whisper's second listen of the piece from `start` to `end`. Whisper's words count
+    /// only when they read as the same speech Apple heard (`SecondReading.resembles`). The flagged
+    /// moment of that piece takes them: found by `piece` when given, otherwise by overlap.
+    /// Harsh words only Whisper heard, in that moment or as an uncued moment elsewhere, are listed
+    /// only when Whisper was also `sure` of the piece (`SecondReading.isSure`); they never cue.
     public mutating func applySecondListen(start: Double, end: Double, apple: String, whisper: String, sure: Bool = true,
                                            piece: UUID? = nil, words: PersonalWords = PersonalWords()) {
+        guard SecondReading.resembles(apple: apple, whisper: whisper) else { return }
         let comparison = SecondReading.compare(apple: apple, whisper: whisper, words: words)
+        let onlyWhisper = sure ? comparison.onlyWhisper : []
         let match = if let piece { moments.firstIndex { $0.pieces.contains(piece) } } else { index(overlapping: start, end) }
         if let i = match {
             moments[i].whisper = whisper
-            moments[i].onlyWhisper = comparison.onlyWhisper
+            moments[i].onlyWhisper = onlyWhisper
             return
         }
-        guard sure, !comparison.onlyWhisper.isEmpty else { return }
+        guard !onlyWhisper.isEmpty else { return }
         insert(Moment(id: UUID(), kind: .whisperOnly, start: start, end: end, apple: apple, whisper: whisper, categories: [],
-                      onlyWhisper: comparison.onlyWhisper, verdict: nil, pieces: piece.map { [$0] } ?? []))
+                      onlyWhisper: onlyWhisper, verdict: nil, pieces: piece.map { [$0] } ?? []))
     }
 
     public mutating func mark(_ id: UUID, _ verdict: Verdict) {

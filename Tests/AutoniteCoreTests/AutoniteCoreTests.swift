@@ -1158,6 +1158,41 @@ private func hit(heardAt: Double, since: Double = 100) -> EarlyCueGate.Hit {
     #expect(EarlyCueSummary(records: decoded) == summary)
 }
 
+@Test func whisperWordsThatDontReadAsTheSameSpeechAreNotUsed() {
+    // Real corrections change a few letters.
+    #expect(SecondReading.resembles(apple: "아 그거 진짜 별로야", whisper: "아, 그거 진짜 별로잖아."))
+    #expect(SecondReading.resembles(apple: "내일 오후에 반찬 써도 될까요", whisper: "내일 오후에 반차 써도 될까요?"))
+    #expect(SecondReading.resembles(apple: "I will send the report tomorrow", whisper: "I'll send the report tomorrow."))
+    // A fluent phrase made up on unclear audio shares almost nothing.
+    #expect(!SecondReading.resembles(apple: "음 그러니까", whisper: "죽여버릴 거야"))
+    #expect(SecondReading.editDistance(Array("kitten"), Array("sitting")) == 3)
+
+    var recap = SessionRecap()
+    recap.recordCue(start: 2, end: 4, text: "음 그러니까 제 말은", categories: [.register])
+    // The cued moment keeps Apple's words and lists nothing only Whisper heard...
+    recap.applySecondListen(start: 2, end: 4, apple: "음 그러니까 제 말은", whisper: "죽여버릴 거야 씨발", sure: true)
+    #expect(recap.moments[0].whisper == nil && recap.moments[0].onlyWhisper.isEmpty)
+    // ...and nothing is listed elsewhere either.
+    recap.applySecondListen(start: 20, end: 22, apple: "음 그러니까", whisper: "죽여버릴 거야 씨발", sure: true)
+    #expect(recap.moments.count == 1)
+    // A harsh word only Whisper heard inside a cued moment needs a sure read too.
+    recap.recordCue(start: 30, end: 33, text: "아 진짜 별로예요", categories: [.wordChoice])
+    recap.applySecondListen(start: 30, end: 33, apple: "아 진짜 별로예요", whisper: "아 씨발 진짜 별로예요", sure: false)
+    #expect(recap.moments[1].whisper == "아 씨발 진짜 별로예요" && recap.moments[1].onlyWhisper.isEmpty)
+    recap.applySecondListen(start: 30, end: 33, apple: "아 진짜 별로예요", whisper: "아 씨발 진짜 별로예요", sure: true)
+    #expect(recap.moments[1].onlyWhisper == ["씨발"])
+
+    // On the live card, made-up words change nothing and don't claim a second check.
+    var screen = LiveScreen()
+    screen.start()
+    let mine = Utterance(start: 0, end: 2, text: "그거 내가 할게.", latency: 0, meanLevelDB: nil,
+                         predicted: .user, predictionConfidence: 1, overlapped: false, voiceMatch: 0.8)
+    screen.receive(ReadingPipeline.evaluate(mine, language: .korean, settings: .niceDefault), phrase: mine.text, language: .korean)
+    screen.applySecondListen("시청해 주셔서 감사합니다 여러분", language: .korean)
+    #expect(screen.currentCue?.phrase == "그거 내가 할게.")
+    #expect(screen.currentCue?.firstHeard == nil && screen.currentCue?.checkedAgain == false)
+}
+
 // MARK: Holdout risk: a word only Whisper heard is its own kind of moment
 
 @Test func aWordOnlyWhisperHeardIsItsOwnKindAndCountsNowhere() {

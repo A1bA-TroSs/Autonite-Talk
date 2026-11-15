@@ -146,9 +146,10 @@ public struct LiveScreen: Equatable, Sendable {
     /// Whisper's second listen of the words on the card. The quote becomes Whisper's words and
     /// Apple's are kept when they differ; for a register cue the next line is rebuilt from the
     /// corrected words. The reasons stay as Apple's reading found them: Whisper corrects text and
-    /// never adds a cue or a category.
+    /// never adds a cue or a category. Words that don't read as the same speech
+    /// (`SecondReading.resembles`) leave the card as it is, without the "checked again" mark.
     public mutating func applySecondListen(_ text: String, language: SpeechLanguage) {
-        guard var cue = currentCue else { return }
+        guard var cue = currentCue, SecondReading.resembles(apple: cue.phrase, whisper: text) else { return }
         if SecondReading.squash(text) != SecondReading.squash(cue.phrase) {
             cue.firstHeard = cue.firstHeard ?? cue.phrase
             cue.phrase = text

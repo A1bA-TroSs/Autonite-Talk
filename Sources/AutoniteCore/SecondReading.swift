@@ -94,6 +94,36 @@ public enum SecondReading {
     public static func squash(_ text: String) -> String {
         String(text.lowercased().filter { $0.isLetter || $0.isNumber })
     }
+
+    /// The share of letters that must line up (one minus the edit distance over the longer text)
+    /// for Whisper's words to count as a reading of the same speech Apple heard.
+    public static let minimumResemblance = 0.5
+
+    /// Whether Whisper's words read as the same speech as Apple's. A real correction changes a few
+    /// letters; a fluent phrase Whisper made up on unclear audio ("음 그러니까" heard as
+    /// "죽여버릴 거야") shares almost none, and then Whisper's words are not used at all.
+    public static func resembles(apple: String, whisper: String) -> Bool {
+        let a = Array(squash(apple)), b = Array(squash(whisper))
+        let longer = max(a.count, b.count)
+        guard longer > 0 else { return true }
+        return 1 - Double(editDistance(a, b)) / Double(longer) >= minimumResemblance
+    }
+
+    /// Levenshtein distance: insertions, deletions and substitutions of single characters.
+    static func editDistance(_ a: [Character], _ b: [Character]) -> Int {
+        guard !a.isEmpty else { return b.count }
+        guard !b.isEmpty else { return a.count }
+        var previous = Array(0...b.count)
+        var current = [Int](repeating: 0, count: b.count + 1)
+        for i in 1...a.count {
+            current[0] = i
+            for j in 1...b.count {
+                current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1))
+            }
+            swap(&previous, &current)
+        }
+        return previous[b.count]
+    }
 }
 
 /// Pieces waiting for Whisper's second listen. Whisper can fall behind continuous talk (the large
