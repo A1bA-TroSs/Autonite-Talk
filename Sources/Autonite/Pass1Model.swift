@@ -619,7 +619,7 @@ extension Pass1Model {
                 receive(fixtureUtterance("아 그거 진짜 별로야", start: 40))
                 let second = fixtureUtterance("아 그거 진짜 별로야", start: 44)
                 receive(second)
-                receiveSecondListen(second, "아, 그거 진짜 별로잖아.")
+                receiveSecondListen(second, SecondReading.Heard(text: "아, 그거 진짜 별로잖아.", sure: true))
                 screen.openCue()
             case "learner":
                 appLanguage = .english
@@ -634,7 +634,7 @@ extension Pass1Model {
             default:
                 let heard = fixtureUtterance("내일 오후에 반찬 써도 될까요", start: 30)
                 receive(heard)
-                receiveSecondListen(heard, "내일 오후에 반차 써도 될까요?")
+                receiveSecondListen(heard, SecondReading.Heard(text: "내일 오후에 반차 써도 될까요?", sure: true))
             }
         }
     }
