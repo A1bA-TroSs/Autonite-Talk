@@ -88,9 +88,6 @@ jobs:
           if [ -n "$korean_voice" ]; then
             say -v "$korean_voice" -o "$RUNNER_TEMP/ko.aiff" "내일 아침에 보고서를 보내 드릴게요."
             afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/ko.aiff" "$clips/ko.wav"
-            # For the Apple probe below: a long sentence with a swear early in it.
-            say -v "$korean_voice" -o "$RUNNER_TEMP/ko-swear.aiff" "아 진짜 존나 피곤한데 그래도 오늘은 이것까지 다 끝내고 집에 갈게요."
-            afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/ko-swear.aiff" "$clips/ko-swear.wav"
           fi
           for clip in "$clips"/*.wav; do
             seconds=$(afinfo "$clip" | awk '/estimated duration/ {print $3}')
@@ -133,17 +130,6 @@ jobs:
           xcrun simctl terminate "$udid" "$bundle_id" || true
           SIMCTL_CHILD_AUTONITE_SELFTEST=voice perl -e 'alarm 600; exec @ARGV' xcrun simctl launch --console "$udid" "$bundle_id" | tee voice-selftest.log || true
           grep -qx "autonite voice selftest succeeded" voice-selftest.log
-
-      # Rubric C1, for information only: Apple's recogniser on the same clips, streamed at real time,
-      # logs when each in-progress result arrives and when a swear first shows up. The Simulator may
-      # lack the speech assets; the log then says so. This step never fails the build.
-      - name: Apple recogniser probe
-        continue-on-error: true
-        run: |
-          udid=$(xcrun simctl list devices booted -j | python3 -c 'import json,sys; print([d["udid"] for v in json.load(sys.stdin)["devices"].values() for d in v][0])')
-          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
-          xcrun simctl terminate "$udid" "$bundle_id" || true
-          SIMCTL_CHILD_AUTONITE_SELFTEST=apple perl -e 'alarm 240; exec @ARGV' xcrun simctl launch --console "$udid" "$bundle_id" | tee apple-probe.log || true
 
       - name: Screenshots for design review
         run: |

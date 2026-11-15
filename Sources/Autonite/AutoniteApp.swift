@@ -23,7 +23,6 @@ struct AutoniteApp: App {
                 if SelfTest.isRequested { await SelfTest.run(lab) }
                 if SelfTest.isWhisperRequested { await SelfTest.runWhisper() }
                 if SelfTest.isVoiceRequested { await SelfTest.runVoice() }
-                if AppleProbe.isRequested { await AppleProbe.runAll() }
             }
         }
     }
