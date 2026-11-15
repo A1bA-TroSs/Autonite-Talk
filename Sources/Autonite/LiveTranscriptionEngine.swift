@@ -43,6 +43,9 @@ final class LiveTranscriptionEngine: @unchecked Sendable {
     let levels = LevelTimeline()
     /// Mono samples at the input rate, for the voice diarizer. Set before `start`; called on the tap thread.
     var onSamples: (@Sendable ([Float], Double) -> Void)?
+    /// Seconds of audio captured so far, on the same timeline as the analyzer and the diarizer. An
+    /// early cue uses it as the time its in-progress words showed up (`EarlyCueGate`).
+    var capturedSeconds: Double { clock.seconds }
 
     private let continuation: AsyncStream<EngineEvent>.Continuation
     private let audioEngine = AVAudioEngine()
@@ -50,6 +53,7 @@ final class LiveTranscriptionEngine: @unchecked Sendable {
     private var inputBuilder: AsyncStream<AnalyzerInput>.Continuation?
     private var resultsTask: Task<Void, Never>?
     private var interruptionObserver: NSObjectProtocol?
+    private let clock = FrameClock()
 
     init() {
         let (stream, continuation) = AsyncStream.makeStream(of: EngineEvent.self)
@@ -179,7 +183,7 @@ final class LiveTranscriptionEngine: @unchecked Sendable {
         let levels = self.levels
         let continuation = self.continuation
         let sampleRate = inputFormat.sampleRate
-        let clock = FrameClock()
+        let clock = self.clock
         let onSamples = self.onSamples
 
         input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { @Sendable buffer, _ in
@@ -212,13 +216,21 @@ final class LiveTranscriptionEngine: @unchecked Sendable {
 
 /// Capture time in seconds, counted from frames so it matches the analyzer's timeline.
 private final class FrameClock: @unchecked Sendable {
+    private let lock = NSLock()
     private var frames: Double = 0
+    private var end: Double = 0
+
+    /// Seconds captured so far; read from the main actor.
+    var seconds: Double { lock.withLock { end } }
 
     /// Advances by one buffer and returns the buffer's midpoint time. Called only from the tap.
     func advance(by count: AVAudioFrameCount, sampleRate: Double) -> Double {
-        let start = frames / sampleRate
-        frames += Double(count)
-        return (start + frames / sampleRate) / 2
+        lock.withLock {
+            let start = frames / sampleRate
+            frames += Double(count)
+            end = frames / sampleRate
+            return (start + end) / 2
+        }
     }
 }
 

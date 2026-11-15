@@ -150,6 +150,14 @@ struct FeasibilityView: View {
                 LabeledContent("Whisper heard differently", value: "\(second.heardDifferently)")
                 LabeledContent("Harsh words only Whisper / only Apple heard", value: "\(second.onlyWhisperHarsh) / \(second.onlyAppleHarsh)")
             }
+            // Rubric C1: early cues, how long the voice gate held them, and how far before the end
+            // of the sentence they landed.
+            let early = EarlyCueSummary(records: model.earlyCues)
+            if early.cued + early.dropped > 0 {
+                LabeledContent("Early cues fired / dropped", value: "\(early.cued) / \(early.dropped)")
+                LabeledContent("Voice gate hold, median / max", value: "\(format(early.medianWait)) / \(format(early.maximumWait))")
+                LabeledContent("Fired before the line ended, median", value: format(early.medianLead))
+            }
             TextField("Notes (room, distance, voices)", text: $model.report.notes, axis: .vertical)
             ShareLink(item: model.report.jsonString()) {
                 Label("Export report JSON", systemImage: "square.and.arrow.up")

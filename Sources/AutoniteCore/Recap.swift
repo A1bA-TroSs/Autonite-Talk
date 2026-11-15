@@ -11,7 +11,16 @@ public struct SessionRecap: Equatable, Sendable {
     }
 
     public struct Moment: Identifiable, Equatable, Sendable {
+        public enum Kind: String, Equatable, Sendable {
+            /// A cue was given here.
+            case cue
+            /// A harsh word only Whisper heard. It may be a mishearing: it never cues, carries no
+            /// category and counts in no total (round 2 holdout risk).
+            case whisperOnly
+        }
+
         public let id: UUID
+        public internal(set) var kind: Kind
         /// Seconds from the start of capture.
         public internal(set) var start: Double
         public internal(set) var end: Double
@@ -19,14 +28,16 @@ public struct SessionRecap: Equatable, Sendable {
         public internal(set) var apple: String
         /// Whisper's words, once its second listen is done.
         public internal(set) var whisper: String?
+        /// Empty for a `whisperOnly` moment.
         public internal(set) var categories: [ReadingCategory]
-        /// A cue was given. False for harsh words only Whisper heard, which never cue.
-        public internal(set) var cued: Bool
         public internal(set) var onlyWhisper: [String]
         public internal(set) var verdict: Verdict?
         /// The attributed pieces (utterance ids) this moment was recorded from, so Whisper's
         /// re-read of a piece reaches its own moment and not a neighbour's.
         public internal(set) var pieces: [UUID] = []
+
+        /// A cue was given. False for harsh words only Whisper heard, which never cue.
+        public var cued: Bool { kind == .cue }
 
         /// The words to quote: Whisper's when its second listen is done, else Apple's.
         public var quote: String { whisper ?? apple }
@@ -66,14 +77,14 @@ public struct SessionRecap: Equatable, Sendable {
             moments[i].start = min(moments[i].start, start)
             moments[i].end = max(moments[i].end, end)
             moments[i].apple = text
-            moments[i].cued = true
+            moments[i].kind = .cue
             let joined = moments[i].categories
             moments[i].categories = ReadingCategory.allCases.filter { joined.contains($0) || categories.contains($0) }
             if let piece, !moments[i].pieces.contains(piece) { moments[i].pieces.append(piece) }
             return moments[i].id
         }
-        let moment = Moment(id: UUID(), start: start, end: end, apple: text, whisper: nil, categories: categories,
-                            cued: true, onlyWhisper: [], verdict: nil, pieces: piece.map { [$0] } ?? [])
+        let moment = Moment(id: UUID(), kind: .cue, start: start, end: end, apple: text, whisper: nil, categories: categories,
+                            onlyWhisper: [], verdict: nil, pieces: piece.map { [$0] } ?? [])
         insert(moment)
         return moment.id
     }
@@ -91,8 +102,8 @@ public struct SessionRecap: Equatable, Sendable {
             return
         }
         guard !comparison.onlyWhisper.isEmpty else { return }
-        insert(Moment(id: UUID(), start: start, end: end, apple: apple, whisper: whisper, categories: [.wordChoice],
-                      cued: false, onlyWhisper: comparison.onlyWhisper, verdict: nil, pieces: piece.map { [$0] } ?? []))
+        insert(Moment(id: UUID(), kind: .whisperOnly, start: start, end: end, apple: apple, whisper: whisper, categories: [],
+                      onlyWhisper: comparison.onlyWhisper, verdict: nil, pieces: piece.map { [$0] } ?? []))
     }
 
     public mutating func mark(_ id: UUID, _ verdict: Verdict) {
@@ -100,10 +111,13 @@ public struct SessionRecap: Equatable, Sendable {
         moments[i].verdict = verdict
     }
 
-    public var cueCount: Int { moments.filter(\.cued).count }
+    /// The moments where a cue was given: what the stats and anything else that counts read.
+    public var cueMoments: [Moment] { moments.filter(\.cued) }
+
+    public var cueCount: Int { cueMoments.count }
 
     public func cueCount(_ category: ReadingCategory) -> Int {
-        moments.filter { $0.cued && $0.categories.contains(category) }.count
+        cueMoments.filter { $0.categories.contains(category) }.count
     }
 
     private func index(overlapping start: Double, _ end: Double) -> Int? {

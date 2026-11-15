@@ -28,12 +28,15 @@ public struct FeasibilityReport: Codable, Sendable {
         public let interruptions: Int
         public let failures: [String]
         public let attributionMethod: AttributionMethod?
+        /// Each early-cue decision (nil in reports from before round 3).
+        public let earlyCues: [EarlyCueRecord]?
 
         public var latency: LatencyStats { LatencyStats(samples: utterances.map(\.latency)) }
         public var secondListen: SecondListenSummary { SecondListenSummary(utterances: utterances) }
+        public var earlyCueSummary: EarlyCueSummary { EarlyCueSummary(records: earlyCues ?? []) }
         public var attribution: AttributionScore { AttributionScore(utterances: utterances, method: attributionMethod ?? .level) }
 
-        public init(language: SpeechLanguage, startedAt: Date, duration: Double, audioSessionMode: String, utterances: [Utterance], interruptions: Int, failures: [String], attributionMethod: AttributionMethod = .level) {
+        public init(language: SpeechLanguage, startedAt: Date, duration: Double, audioSessionMode: String, utterances: [Utterance], interruptions: Int, failures: [String], attributionMethod: AttributionMethod = .level, earlyCues: [EarlyCueRecord]? = nil) {
             self.language = language
             self.startedAt = startedAt
             self.duration = duration
@@ -42,6 +45,7 @@ public struct FeasibilityReport: Codable, Sendable {
             self.interruptions = interruptions
             self.failures = failures
             self.attributionMethod = attributionMethod
+            self.earlyCues = earlyCues
         }
     }
 
@@ -116,5 +120,58 @@ public struct SecondListenSummary: Equatable, Sendable {
             onlyWhisperHarsh: read.reduce(0) { $0 + ($1.whisperOnlyHarsh ?? 0) },
             onlyAppleHarsh: read.reduce(0) { $0 + ($1.appleOnlyHarsh ?? 0) }
         )
+    }
+}
+
+/// One early-cue decision (rubric C1: does the cue land mid-sentence, and how long does the voice
+/// gate hold it?). Times are capture seconds. It holds no words, so a redacted report keeps it.
+public struct EarlyCueRecord: Codable, Equatable, Sendable {
+    /// When the mismatch first showed up in the recogniser's in-progress text.
+    public let heardAt: Double
+    /// When it was cued or dropped.
+    public let decidedAt: Double
+    public let cued: Bool
+    /// Why it was dropped (`EarlyCueGate`), when it was.
+    public let reason: String?
+    /// The end of the final line it belonged to, once that line arrived.
+    public var lineEnd: Double?
+
+    public init(heardAt: Double, decidedAt: Double, cued: Bool, reason: String?, lineEnd: Double? = nil) {
+        self.heardAt = heardAt
+        self.decidedAt = decidedAt
+        self.cued = cued
+        self.reason = reason
+        self.lineEnd = lineEnd
+    }
+
+    /// Seconds the voice gate held the cue after the words showed up.
+    public var wait: Double { decidedAt - heardAt }
+    /// Seconds before the end of its line that the cue fired; negative when it fired after.
+    public var lead: Double? { cued ? lineEnd.map { $0 - decidedAt } : nil }
+}
+
+public struct EarlyCueSummary: Equatable, Sendable {
+    public let cued: Int
+    public let dropped: Int
+    /// Median and slowest hold by the voice gate, over the cues that fired.
+    public let medianWait: Double?
+    public let maximumWait: Double?
+    /// Median of how long before the end of its line a cue fired.
+    public let medianLead: Double?
+
+    public init(records: [EarlyCueRecord]) {
+        let fired = records.filter(\.cued)
+        cued = fired.count
+        dropped = records.count - fired.count
+        let waits = fired.map(\.wait).sorted()
+        medianWait = Self.median(waits)
+        maximumWait = waits.last
+        medianLead = Self.median(fired.compactMap(\.lead).sorted())
+    }
+
+    private static func median(_ sorted: [Double]) -> Double? {
+        guard !sorted.isEmpty else { return nil }
+        let mid = sorted.count / 2
+        return sorted.count % 2 == 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
     }
 }

@@ -198,14 +198,51 @@ enum SelfTest {
                 if name.hasSuffix("-me") { mine.append(range) } else { theirs.append(range) }
                 audio += [Float](repeating: 0, count: Int(rate * 0.4))
             }
-            // Fed in 100 ms chunks, as the microphone delivers it.
+            // The early-cue gate on the real diarizer (rubric M5): in every turn a swear "shows up" in
+            // the in-progress text 0.4 s after the turn's middle. The other's must never cue early.
+            var planted: [(mine: Bool, turn: ClosedRange<Double>, hit: EarlyCueGate.Hit, verdict: EarlyCueGate.Verdict?, at: Double?)] = []
+            for (isMine, turn) in mine.map({ (true, $0) }) + theirs.map({ (false, $0) }) {
+                let heardAt = (turn.lowerBound + turn.upperBound) / 2 + 0.4
+                planted.append((isMine, turn, EarlyCueGate.Hit(text: "아 존나", closed: false, hits: 1, heardAt: heardAt, since: heardAt), nil, nil))
+            }
+            var check: EarlyCueGate.Check?
+            var checkedAt = -1.0
+            // Fed in 100 ms chunks, as the microphone delivers it, with the app's 250 ms background check.
             let chunk = Int(rate / 10)
             var foundAt: Double?
             let fedStarted = Date()
             for offset in stride(from: 0, to: audio.count, by: chunk) {
                 try voice.feed(Array(audio[offset..<min(offset + chunk, audio.count)]), sampleRate: rate)
-                if foundAt == nil, voice.snapshot().userSlot != nil { foundAt = Double(min(offset + chunk, audio.count)) / rate }
+                let position = Double(min(offset + chunk, audio.count)) / rate
+                let state = voice.snapshot()
+                if foundAt == nil, state.userSlot != nil { foundAt = position }
+                if position - checkedAt >= 0.25 {
+                    checkedAt = position
+                    check = FeasibilityModel.checkRecent(voice, state).map { EarlyCueGate.Check(window: $0.window, match: $0.match, slot: state.userSlot) }
+                }
+                for i in planted.indices where planted[i].verdict == nil && planted[i].hit.heardAt <= position {
+                    let verdict = EarlyCueGate.judge(planted[i].hit, check: check, turns: state.turns, userSlot: state.userSlot,
+                                                     heardUntil: state.heardUntil, now: position)
+                    if verdict != .wait {
+                        planted[i].verdict = verdict
+                        planted[i].at = position
+                    }
+                }
             }
+            for item in planted.sorted(by: { $0.turn.lowerBound < $1.turn.lowerBound }) {
+                let outcome: String
+                switch item.verdict {
+                case .cue: outcome = "cued"
+                case .drop(let reason): outcome = "dropped (\(reason))"
+                case .wait, nil: outcome = "still waiting when the audio ended"
+                }
+                let after = item.at.map { String(format: " %.1f s after the words showed up", $0 - item.hit.heardAt) } ?? ""
+                log("voice selftest early cue in the \(item.mine ? "user's" : "other's") turn at \(String(format: "%.1f", item.turn.lowerBound)) s: \(outcome)\(after)")
+                if !item.mine, item.verdict == .cue {
+                    failures.append("an early cue fired in the other voice's turn at \(String(format: "%.1f", item.turn.lowerBound)) s")
+                }
+            }
+            if !planted.contains(where: { $0.mine && $0.verdict == .cue }) { failures.append("no early cue fired in the user's own turns") }
             try voice.finish()
             let snapshot = voice.snapshot()
             log("voice selftest: \(String(format: "%.1f", Double(audio.count) / rate)) s of conversation diarized in \(String(format: "%.1f", Date().timeIntervalSince(fedStarted))) s")

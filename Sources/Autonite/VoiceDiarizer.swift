@@ -18,6 +18,8 @@ final class VoiceDiarizer: @unchecked Sendable {
         let turns: [SpeakerTurn]
         /// Audio time up to which the turns are final, in seconds from the start of capture.
         let finalizedUntil: Double
+        /// The newest audio time the diarizer has looked at, its tentative frames included.
+        let heardUntil: Double
         let userSlot: Int?
     }
 
@@ -41,10 +43,20 @@ final class VoiceDiarizer: @unchecked Sendable {
     private static let printRate = 16_000.0
     private var finalized: [SpeakerTurn] = []
     private var tentative: [SpeakerTurn] = []
+    private var heardUntil = 0.0
     private var userSlot: Int?
     private var finder = UserSlotFinder()
 
     var isLoaded: Bool { lock.withLock { loaded } }
+
+    /// Where FluidAudio keeps the downloaded diarizer and voiceprint models.
+    static var modelsFolder: URL { MLModelConfigurationUtils.defaultModelsDirectory() }
+
+    /// Deletes the downloaded models; models already loaded keep working until the app quits, and
+    /// `load` downloads them again next time.
+    static func deleteModels() {
+        try? FileManager.default.removeItem(at: modelsFolder)
+    }
 
     /// Downloads the Core ML models on first use (from Hugging Face, free), then loads them.
     func load() async throws {
@@ -148,6 +160,7 @@ final class VoiceDiarizer: @unchecked Sendable {
             return Snapshot(
                 turns: finalized + tentative,
                 finalizedUntil: Double(diarizer.numFramesProcessed) * frameSeconds,
+                heardUntil: heardUntil,
                 userSlot: userSlot
             )
         }
@@ -204,6 +217,9 @@ final class VoiceDiarizer: @unchecked Sendable {
     private func apply(_ update: DiarizerTimelineUpdate) {
         finalized += update.finalizedSegments.map(Self.turn)
         tentative = update.tentativeSegments.map(Self.turn)
+        let chunk = update.chunkResult
+        let frames = chunk.tentativeStartFrame + chunk.tentativeFrameCount
+        heardUntil = max(heardUntil, Double(frames) * Double(diarizer.config.frameDurationSeconds))
     }
 
     private static func turn(_ segment: DiarizerSegment) -> SpeakerTurn {
@@ -219,6 +235,7 @@ extension VoiceDiarizer: SpeakerEnrolling {
             diarizer.reset()
             finalized = []
             tentative = []
+            heardUntil = 0
             recent = []
             recentEnd = 0
             inputSamples = 0

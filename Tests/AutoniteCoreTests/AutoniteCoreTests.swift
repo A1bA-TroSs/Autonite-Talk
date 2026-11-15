@@ -985,3 +985,120 @@ private struct LegacyVoiceProfile: Encodable {
     #expect(redacted.utterances.allSatisfy { $0.text.isEmpty && ($0.whisperText ?? "").isEmpty })
     #expect(redacted.secondListen == record.secondListen)
 }
+
+// MARK: Rubric M5: an early cue only on words the diarizer has heard as the user's
+
+private func hit(heardAt: Double, since: Double = 100) -> EarlyCueGate.Hit {
+    EarlyCueGate.Hit(text: "아 존나", closed: false, hits: 1, heardAt: heardAt, since: since)
+}
+
+@Test func earlyCueNeverFiresOnAnotherVoiceRightAfterTheUser() {
+    // The user talks; the other person says "존나" right after, while the user's check is still fresh.
+    let check = EarlyCueGate.Check(window: 0.5...3.0, match: 0.82, slot: 0)
+    let words = hit(heardAt: 3.9)
+    // The diarizer hasn't heard that far yet: wait, don't trust the user's earlier check.
+    let before = [SpeakerTurn(slot: 0, start: 0, end: 3.0)]
+    #expect(EarlyCueGate.judge(words, check: check, turns: before, userSlot: 0, heardUntil: 3.5, now: 100.2) == .wait)
+    // Once it has, the other voice is there, and the words are never cued early.
+    let after = before + [SpeakerTurn(slot: 1, start: 3.1, end: 3.6)]
+    #expect(EarlyCueGate.judge(words, check: check, turns: after, userSlot: 0, heardUntil: 4.0, now: 100.4)
+            == .drop("another voice spoke while the words were said"))
+    // Even a fresh check that reaches the words can't vouch for them over the other voice.
+    let fresh = EarlyCueGate.Check(window: 1.2...3.9, match: 0.82, slot: 0)
+    #expect(EarlyCueGate.judge(words, check: fresh, turns: after, userSlot: 0, heardUntil: 4.0, now: 100.4) != .cue)
+}
+
+@Test func earlyCueFiresOnceTheUsersOwnStretchReachesTheWords() {
+    let words = hit(heardAt: 3.9)
+    let talking = [SpeakerTurn(slot: 0, start: 0, end: 4.0)]
+    let check = EarlyCueGate.Check(window: 1.0...4.0, match: 0.82, slot: 0)
+    #expect(EarlyCueGate.judge(words, check: check, turns: talking, userSlot: 0, heardUntil: 4.0, now: 100.3) == .cue)
+    // A pause right after the words doesn't cost the cue.
+    let paused = [SpeakerTurn(slot: 0, start: 0, end: 3.6)]
+    let pausedCheck = EarlyCueGate.Check(window: 0.6...3.6, match: 0.8, slot: 0)
+    #expect(EarlyCueGate.judge(words, check: pausedCheck, turns: paused, userSlot: 0, heardUntil: 4.6, now: 100.6) == .cue)
+    // Another voice well before the words and the check doesn't matter.
+    let earlier = [SpeakerTurn(slot: 1, start: 0, end: 0.5)] + talking
+    #expect(EarlyCueGate.judge(words, check: check, turns: earlier, userSlot: 0, heardUntil: 4.0, now: 100.3) == .cue)
+}
+
+@Test func earlyCueWaitsForAFreshMatchingCheckOnTheUsersSlotThenGivesUp() {
+    let words = hit(heardAt: 3.9)
+    let talking = [SpeakerTurn(slot: 0, start: 0, end: 4.0)]
+    // Too old: the checked stretch stops more than half a second before the words showed up.
+    let old = EarlyCueGate.Check(window: 0.0...3.0, match: 0.82, slot: 0)
+    #expect(EarlyCueGate.judge(words, check: old, turns: talking, userSlot: 0, heardUntil: 4.0, now: 100.5) == .wait)
+    // Made on another slot, below the voice threshold, or with no user slot found yet.
+    let otherSlot = EarlyCueGate.Check(window: 1.0...4.0, match: 0.82, slot: 1)
+    #expect(EarlyCueGate.judge(words, check: otherSlot, turns: talking, userSlot: 0, heardUntil: 4.0, now: 100.5) == .wait)
+    let weak = EarlyCueGate.Check(window: 1.0...4.0, match: VoiceVerifier.threshold - 0.01, slot: 0)
+    #expect(EarlyCueGate.judge(words, check: weak, turns: talking, userSlot: 0, heardUntil: 4.0, now: 100.5) == .wait)
+    #expect(EarlyCueGate.judge(words, check: nil, turns: talking, userSlot: nil, heardUntil: 4.0, now: 100.5) == .wait)
+    // Past the wait, the final line decides instead.
+    #expect(EarlyCueGate.judge(words, check: old, turns: talking, userSlot: 0, heardUntil: 4.0, now: 100 + EarlyCueGate.maximumWait + 0.1)
+            == .drop("no clean, fresh voice check in time"))
+}
+
+@Test func aCheckReachingBackIntoAnotherVoiceWaitsForACleanerOne() {
+    // The other person stopped at 1.5 s; the user's words show up at 5.0 s, well after.
+    let turns = [SpeakerTurn(slot: 1, start: 0, end: 1.5), SpeakerTurn(slot: 0, start: 1.9, end: 5.2)]
+    let words = hit(heardAt: 5.0)
+    let mixed = EarlyCueGate.Check(window: 1.2...5.0, match: 0.8, slot: 0)
+    #expect(EarlyCueGate.judge(words, check: mixed, turns: turns, userSlot: 0, heardUntil: 5.2, now: 100.2) == .wait)
+    let clean = EarlyCueGate.Check(window: 2.0...5.0, match: 0.8, slot: 0)
+    #expect(EarlyCueGate.judge(words, check: clean, turns: turns, userSlot: 0, heardUntil: 5.2, now: 100.4) == .cue)
+}
+
+@Test func aWaitingHitMovesOnlyWhenAnotherMismatchShowsUp() {
+    var waiting = hit(heardAt: 3.9)
+    // The user keeps talking around the same swear: the time stays, so the diarizer can catch up.
+    waiting.update(text: "아 존나 피곤해서 그래", closed: false, hits: 1, heardAt: 4.6)
+    #expect(waiting.heardAt == 3.9 && waiting.firstHeardAt == 3.9)
+    // A second swear moves it to when that one showed up.
+    waiting.update(text: "아 존나 피곤해서 씨발", closed: false, hits: 2, heardAt: 5.2)
+    #expect(waiting.heardAt == 5.2 && waiting.firstHeardAt == 3.9 && waiting.hits == 2)
+}
+
+// MARK: Rubric C1: early cue timing in the report
+
+@Test func earlyCueRecordsGiveTheGateHoldAndHowFarBeforeTheLineEndItFired() throws {
+    let records = [
+        EarlyCueRecord(heardAt: 3.9, decidedAt: 4.3, cued: true, reason: nil, lineEnd: 6.0),
+        EarlyCueRecord(heardAt: 8.0, decidedAt: 8.2, cued: true, reason: nil, lineEnd: 8.1),
+        EarlyCueRecord(heardAt: 12.0, decidedAt: 12.4, cued: false, reason: "another voice spoke while the words were said"),
+    ]
+    let summary = EarlyCueSummary(records: records)
+    #expect(summary.cued == 2 && summary.dropped == 1)
+    #expect(abs((summary.medianWait ?? 0) - 0.3) < 1e-9)
+    #expect(abs((summary.maximumWait ?? 0) - 0.4) < 1e-9)
+    // 1.7 s before its line ended, and 0.1 s after the other one's.
+    #expect(abs((summary.medianLead ?? 0) - 0.8) < 1e-9)
+    // The records travel in the report and hold no words, so redaction leaves them whole; a report
+    // from before they existed still reads.
+    let record = FeasibilityReport.SessionRecord(language: .korean, startedAt: Date(timeIntervalSince1970: 0), duration: 20,
+                                                 audioSessionMode: "measurement", utterances: [], interruptions: 0, failures: [],
+                                                 attributionMethod: .voice, earlyCues: records)
+    let data = try JSONEncoder().encode(record)
+    let decoded = try JSONDecoder().decode(FeasibilityReport.SessionRecord.self, from: data)
+    #expect(decoded.earlyCueSummary == summary)
+    var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    object.removeValue(forKey: "earlyCues")
+    let older = try JSONDecoder().decode(FeasibilityReport.SessionRecord.self, from: JSONSerialization.data(withJSONObject: object))
+    #expect(older.earlyCues == nil && older.earlyCueSummary.cued == 0)
+}
+
+// MARK: Holdout risk: a word only Whisper heard is its own kind of moment
+
+@Test func aWordOnlyWhisperHeardIsItsOwnKindAndCountsNowhere() {
+    var recap = SessionRecap()
+    recap.recordCue(start: 2, end: 4, text: "그건 좀 짜증 나요", categories: [.wordChoice])
+    recap.applySecondListen(start: 20, end: 22, apple: "아 그건 좀 한 심하다", whisper: "아, 그건 좀 한심하다.")
+    let unconfirmed = recap.moments[1]
+    #expect(unconfirmed.kind == .whisperOnly && unconfirmed.categories.isEmpty && !unconfirmed.cued)
+    #expect(recap.cueMoments.map(\.id) == [recap.moments[0].id])
+    #expect(recap.cueCount == 1 && recap.cueCount(.wordChoice) == 1 && recap.cueCount(.register) == 0)
+    // A real cue on the same stretch makes it a cue, with the cue's category.
+    recap.recordCue(start: 20, end: 22, text: "아 그건 좀 한 심하다 진짜", categories: [.register])
+    #expect(recap.moments[1].kind == .cue && recap.moments[1].categories == [.register])
+    #expect(recap.cueCount == 2)
+}

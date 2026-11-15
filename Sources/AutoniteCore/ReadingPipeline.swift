@@ -77,3 +77,90 @@ public struct EarlyReader: Sendable {
     /// The transcriber finalised the line; the next in-progress text starts fresh.
     public mutating func lineFinished() { cuedHits = 0 }
 }
+
+/// Decides whether a voice check vouches for words that just showed up in in-progress text
+/// (rubric M5, round 2 must-fix). In-progress text carries no audio times, so the words are only
+/// known to lie somewhere in the `lookback` seconds before the capture time at which they appeared.
+/// So the early cue waits until the diarizer has heard up to that time, and then:
+/// - another slot speaking anywhere from the start of the lookback on drops it for good;
+/// - otherwise it needs a check made on the user's current slot that matched the enrolled voice,
+///   whose stretch reaches to within `maximumLag` of when the words appeared and has no other
+///   voice in it. Until such a check comes it waits, at most `maximumWait`.
+/// A dropped hit is never cued early; the final line, which has word times, decides it.
+public enum EarlyCueGate {
+    /// How long before the moment they appeared the words may have been spoken: the recogniser's
+    /// lag (0.3-0.6 s), the word itself and a late revision.
+    public static let lookback = 2.0
+    /// How close to that moment the checked stretch of the user's voice must reach.
+    public static let maximumLag = 0.5
+    /// How long a hit may wait for the diarizer and a clean, fresh check.
+    public static let maximumWait = 1.5
+
+    /// A background voice check: the stretch it printed, its match and the user slot at the time.
+    public struct Check: Equatable, Sendable {
+        public let window: ClosedRange<Double>
+        public let match: Double
+        public let slot: Int?
+
+        public init(window: ClosedRange<Double>, match: Double, slot: Int?) {
+            self.window = window
+            self.match = match
+            self.slot = slot
+        }
+    }
+
+    /// New mismatches in in-progress text, with the capture times at which the first and the
+    /// latest of them showed up.
+    public struct Hit: Equatable, Sendable {
+        public private(set) var text: String
+        public private(set) var closed: Bool
+        /// `EarlyReader.hits` in `text`.
+        public private(set) var hits: Int
+        public let firstHeardAt: Double
+        public private(set) var heardAt: Double
+        /// Seconds on a steady clock when it first showed up.
+        public let since: Double
+
+        public init(text: String, closed: Bool, hits: Int, heardAt: Double, since: Double) {
+            self.text = text
+            self.closed = closed
+            self.hits = hits
+            firstHeardAt = heardAt
+            self.heardAt = heardAt
+            self.since = since
+        }
+
+        /// The line grew. Only another mismatch moves `heardAt`: more words around the same one
+        /// don't, or a user who keeps talking would keep the diarizer from ever catching up.
+        public mutating func update(text: String, closed: Bool, hits: Int, heardAt: Double) {
+            self.text = text
+            self.closed = closed
+            if hits > self.hits {
+                self.hits = hits
+                self.heardAt = max(self.heardAt, heardAt)
+            }
+        }
+    }
+
+    public enum Verdict: Equatable, Sendable {
+        case cue
+        case wait
+        /// Never cue these words early; the final line decides.
+        case drop(String)
+    }
+
+    /// `heardUntil` is the newest audio time the diarizer has looked at; `now` is the clock `since` uses.
+    public static func judge(_ hit: Hit, check: Check?, turns: [SpeakerTurn], userSlot: Int?, heardUntil: Double, now: Double) -> Verdict {
+        let others = turns.filter { $0.slot != userSlot }
+        if userSlot != nil, others.contains(where: { $0.end > hit.firstHeardAt - lookback }) {
+            return .drop("another voice spoke while the words were said")
+        }
+        let vouched = userSlot != nil && heardUntil >= hit.heardAt && check.map { check in
+            check.slot == userSlot && check.match >= VoiceVerifier.threshold
+                && check.window.upperBound >= hit.heardAt - maximumLag
+                && !others.contains { $0.end > check.window.lowerBound }
+        } == true
+        if vouched { return .cue }
+        return now - hit.since > maximumWait ? .drop("no clean, fresh voice check in time") : .wait
+    }
+}

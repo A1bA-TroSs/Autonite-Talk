@@ -125,14 +125,14 @@ jobs:
           bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
           xcrun simctl ui "$udid" appearance dark || true
           mkdir -p screens
-          for screen in setup live cue learner muteoffer practice settings recap; do
+          for screen in setup live cue learner muteoffer practice settings mydata recap; do
             xcrun simctl terminate "$udid" "$bundle_id" || true
             SIMCTL_CHILD_AUTONITE_SCREEN=$screen xcrun simctl launch "$udid" "$bundle_id"
             sleep 6
             xcrun simctl io "$udid" screenshot "screens/$screen.png"
           done
           # Also print small JPEGs into the log, for reviewers who can read logs but not artifacts.
-          for screen in setup live cue learner muteoffer practice settings recap; do
+          for screen in setup live cue learner muteoffer practice settings mydata recap; do
             sips -s format jpeg -s formatOptions 70 -Z 1000 "screens/$screen.png" --out "$RUNNER_TEMP/$screen.jpg" >/dev/null
             echo "SCREEN-BEGIN $screen"
             base64 -i "$RUNNER_TEMP/$screen.jpg" | fold -w 4000

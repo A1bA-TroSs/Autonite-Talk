@@ -47,6 +47,7 @@ public enum CopyKey: String, CaseIterable, Sendable {
     case whisperPreparing, whisperReady, whisperFailed, whisperDelete, whisperNetwork
     case myWordsTitle, myWordsBody, myWordsPlaceholder, myWordsAdd, myWordsAdded, myWordsMuted, myWordsNone
     case myDataTitle, myDataBody, dataVoice, dataVoiceDetail, dataMarks, dataWords, dataWhisper, dataRecap, dataDelete, dataNone, labOpen
+    case dataSpeakerModels, dataSpeakerModelsDetail, dataDeleteAll, dataDeleteAllTitle, dataDeleteAllBody
 }
 
 public enum Copy {
@@ -225,6 +226,11 @@ public enum Copy {
         .dataRecap: "Recap: in memory only, gone after the next session",
         .dataDelete: "Delete",
         .dataNone: "None",
+        .dataSpeakerModels: "Speaker models",
+        .dataSpeakerModelsDetail: "downloaded, nothing of yours",
+        .dataDeleteAll: "Delete everything",
+        .dataDeleteAllTitle: "Delete everything Autunite keeps on this iPhone?",
+        .dataDeleteAllBody: "Your voice profile, marks, word list and downloaded models are deleted. You'll set up your voice again, and the models download again when needed.",
         .labOpen: "Lab (for testing)",
     ]
 
@@ -393,6 +399,11 @@ public enum Copy {
         .dataRecap: "돌아보기: 메모리에만 있고, 다음 대화 뒤 사라져요",
         .dataDelete: "지우기",
         .dataNone: "없음",
+        .dataSpeakerModels: "화자 구분 모델",
+        .dataSpeakerModelsDetail: "내려받은 모델, 내 정보 없음",
+        .dataDeleteAll: "모두 지우기",
+        .dataDeleteAllTitle: "이 아이폰에 있는 오토나이트 데이터를 모두 지울까요?",
+        .dataDeleteAllBody: "목소리 프로필, 표시, 단어 목록, 내려받은 모델을 지워요. 목소리는 다시 설정하고, 모델은 필요할 때 다시 받아요.",
         .labOpen: "실험실 (테스트용)",
     ]
 }

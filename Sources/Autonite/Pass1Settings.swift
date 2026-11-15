@@ -61,17 +61,18 @@ struct PracticeSheet: View {
 
 // MARK: Settings
 
-/// App language, Whisper, the user's word list, and everything kept on this iPhone with a way to
-/// delete each (research 2026-11-16 §5.6 and §5.10). The Lab stays reachable for evidence runs.
+/// App language, Whisper, the user's word list, and the My data page: everything kept on this
+/// iPhone with a way to delete each or all of it (research 2026-11-16 §5.6 and §5.10). The Lab
+/// stays reachable for evidence runs.
 struct SettingsView: View {
     @Bindable var model: Pass1Model
     @State private var newWord = ""
     @State private var data = Pass1Model.DataSummary()
-    @State private var confirmVoiceDelete = false
     @State private var showsLab = false
+    @State private var path: [SettingsPage] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Form {
                 Section {
                     ForEach(Pass1Model.AppLanguage.allCases, id: \.self) { option in
@@ -132,29 +133,9 @@ struct SettingsView: View {
                 .listRowBackground(Palette.liveSurface)
 
                 Section {
-                    DataRow(model: model, title: model.copy(.dataVoice),
-                            value: model.hasProfile ? "\(bytes(data.voiceBytes)) · \(model.copy(.dataVoiceDetail))" : bytes(data.voiceBytes),
-                            canDelete: model.hasProfile && !model.lab.isRecording) { confirmVoiceDelete = true }
-                    DataRow(model: model, title: model.copy(.dataMarks), value: count(data.marks), canDelete: data.marks > 0) {
-                        model.deleteMarks()
-                        refresh()
+                    NavigationLink(value: SettingsPage.myData) {
+                        LabeledContent(model.copy(.myDataTitle), value: bytes(data.totalBytes))
                     }
-                    DataRow(model: model, title: model.copy(.dataWords), value: count(data.words), canDelete: data.words > 0) {
-                        model.deleteWords()
-                        refresh()
-                    }
-                    DataRow(model: model, title: model.copy(.dataWhisper), value: bytes(data.whisperBytes),
-                            canDelete: data.whisperBytes != nil && !model.whisperBusy) {
-                        Task {
-                            await model.deleteWhisperModels()
-                            refresh()
-                        }
-                    }
-                    Text(model.copy(.dataRecap))
-                        .font(.footnote)
-                        .foregroundStyle(Palette.liveMuted)
-                } header: {
-                    Text(model.copy(.myDataTitle))
                 } footer: {
                     Text(model.copy(.myDataBody))
                 }
@@ -175,11 +156,8 @@ struct SettingsView: View {
                     Button(model.copy(.close)) { model.showsSettings = false }
                 }
             }
-            .confirmationDialog(model.copy(.deleteVoice), isPresented: $confirmVoiceDelete, titleVisibility: .visible) {
-                Button(model.copy(.dataDelete), role: .destructive) {
-                    model.showsSettings = false
-                    model.deleteVoice()
-                }
+            .navigationDestination(for: SettingsPage.self) { _ in
+                MyDataView(model: model)
             }
             .sheet(isPresented: $showsLab) {
                 NavigationStack {
@@ -189,7 +167,14 @@ struct SettingsView: View {
                         .toolbar { Button(model.copy(.close)) { showsLab = false } }
                 }
             }
-            .onAppear(perform: refresh)
+            .onAppear {
+                refresh()
+                if model.opensMyData {
+                    model.opensMyData = false
+                    path = [.myData]
+                }
+            }
+            .onChange(of: path) { refresh() }
             .onChange(of: model.lab.whisperStatus) { _, status in
                 if case .downloading = status { return }
                 refresh()
@@ -219,8 +204,92 @@ struct SettingsView: View {
     private func bytes(_ value: Int64?) -> String {
         value.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? model.copy(.dataNone)
     }
+}
 
-    private func count(_ value: Int) -> String { value > 0 ? "\(value)" : model.copy(.dataNone) }
+enum SettingsPage: Hashable {
+    case myData
+}
+
+/// Everything the app keeps on this iPhone, each with its size and a way to delete it, and one
+/// button that deletes it all (research 2026-11-16 §5.10; round 2 C4).
+struct MyDataView: View {
+    @Bindable var model: Pass1Model
+    @State private var data = Pass1Model.DataSummary()
+    @State private var confirmVoiceDelete = false
+    @State private var confirmDeleteAll = false
+
+    var body: some View {
+        Form {
+            Section {
+                DataRow(model: model, title: model.copy(.dataVoice),
+                        value: model.hasProfile ? "\(bytes(data.voiceBytes)) · \(model.copy(.dataVoiceDetail))" : bytes(data.voiceBytes),
+                        canDelete: model.hasProfile && !model.lab.isRecording) { confirmVoiceDelete = true }
+                DataRow(model: model, title: model.copy(.dataMarks), value: count(data.marks, data.marksBytes), canDelete: data.marks > 0) {
+                    model.deleteMarks()
+                    refresh()
+                }
+                DataRow(model: model, title: model.copy(.dataWords), value: count(data.words, data.wordsBytes), canDelete: data.words > 0) {
+                    model.deleteWords()
+                    refresh()
+                }
+                DataRow(model: model, title: model.copy(.dataWhisper), value: bytes(data.whisperBytes),
+                        canDelete: data.whisperBytes != nil && !model.whisperBusy) {
+                    Task {
+                        await model.deleteWhisperModels()
+                        refresh()
+                    }
+                }
+                // Needed to tell voices apart and holds nothing of the user's, so it goes only with everything else.
+                DataRow(model: model, title: model.copy(.dataSpeakerModels),
+                        value: data.speakerModelBytes == nil ? bytes(nil) : "\(bytes(data.speakerModelBytes)) · \(model.copy(.dataSpeakerModelsDetail))",
+                        canDelete: false) {}
+                Text(model.copy(.dataRecap))
+                    .font(.footnote)
+                    .foregroundStyle(Palette.liveMuted)
+            } footer: {
+                Text(model.copy(.myDataBody))
+            }
+            .listRowBackground(Palette.liveSurface)
+
+            Section {
+                Button(model.copy(.dataDeleteAll), role: .destructive) { confirmDeleteAll = true }
+                    .disabled(model.lab.isRecording || model.whisperBusy)
+            } footer: {
+                Text(model.copy(.dataDeleteAllBody))
+            }
+            .listRowBackground(Palette.liveSurface)
+        }
+        .scrollContentBackground(.hidden)
+        .background(Palette.liveBackground)
+        .navigationTitle(model.copy(.myDataTitle))
+        .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(model.copy(.deleteVoice), isPresented: $confirmVoiceDelete, titleVisibility: .visible) {
+            Button(model.copy(.dataDelete), role: .destructive) {
+                model.showsSettings = false
+                model.deleteVoice()
+            }
+        }
+        .confirmationDialog(model.copy(.dataDeleteAllTitle), isPresented: $confirmDeleteAll, titleVisibility: .visible) {
+            Button(model.copy(.dataDeleteAll), role: .destructive) {
+                Task { await model.deleteEverything() }
+            }
+        } message: {
+            Text(model.copy(.dataDeleteAllBody))
+        }
+        .onAppear(perform: refresh)
+        .onChange(of: model.words) { refresh() }
+    }
+
+    private func refresh() { data = model.dataSummary() }
+
+    private func bytes(_ value: Int64?) -> String {
+        value.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? model.copy(.dataNone)
+    }
+
+    private func count(_ value: Int, _ size: Int64?) -> String {
+        guard value > 0 else { return model.copy(.dataNone) }
+        return size.map { "\(value) · \(bytes($0))" } ?? "\(value)"
+    }
 }
 
 /// A choice row with a checkmark; its title wraps rather than being cut off.

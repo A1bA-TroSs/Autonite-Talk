@@ -27,8 +27,17 @@ final class Pass1Model {
     struct DataSummary: Equatable {
         var voiceBytes: Int64?
         var marks = 0
+        var marksBytes: Int64?
         var words = 0
+        var wordsBytes: Int64?
         var whisperBytes: Int64?
+        var speakerModelBytes: Int64?
+
+        /// Everything together, or nil when nothing is kept.
+        var totalBytes: Int64? {
+            let sizes = [voiceBytes, marksBytes, wordsBytes, whisperBytes, speakerModelBytes].compactMap { $0 }
+            return sizes.isEmpty ? nil : sizes.reduce(0, +)
+        }
     }
 
     let lab: FeasibilityModel
@@ -56,6 +65,8 @@ final class Pass1Model {
     private(set) var whisperEnabled = false
     private(set) var whisperModel: WhisperReader.Model = .standard
     var showsSettings = false
+    /// Opens settings on the My data page (the CI screenshot uses it).
+    var opensMyData = false
     var showsPractice = false
     /// What the running session reads with: the practice situation's settings or the confirmed
     /// ones, plus the user's word list.
@@ -119,6 +130,8 @@ final class Pass1Model {
 
     /// Set only by the CI screenshot fixture, so the strip shows a recording session.
     var fixtureStartedAt: Date?
+    /// Sizes the My data screenshot shows instead of this Simulator's empty folders.
+    var fixtureData: DataSummary?
     var showsRecording: Bool { lab.isRecording || fixtureStartedAt != nil }
     var recordingStartedAt: Date? { fixtureStartedAt ?? lab.startedAt }
 
@@ -519,12 +532,32 @@ final class Pass1Model {
     func deleteMarks() { saveMarks([]) }
 
     func dataSummary() -> DataSummary {
-        DataSummary(
+        if let fixtureData { return fixtureData }
+        return DataSummary(
             voiceBytes: hasProfile ? store.flatMap { Self.size(of: $0.directory) } : nil,
             marks: loadMarks().count,
+            marksBytes: Self.marksFile.flatMap(Self.size(ofFile:)),
             words: words.added.count + words.muted.count,
-            whisperBytes: (try? WhisperReader.folder()).flatMap { Self.size(of: $0) }
+            wordsBytes: Self.wordsFile.flatMap(Self.size(ofFile:)),
+            whisperBytes: (try? WhisperReader.folder()).flatMap { Self.size(of: $0) },
+            speakerModelBytes: Self.size(of: VoiceDiarizer.modelsFolder)
         )
+    }
+
+    /// Deletes everything the app keeps on this iPhone (research 2026-11-16 §5.10): the voice
+    /// profile, the marks, the word list and every downloaded model. The app goes back to setup.
+    func deleteEverything() async {
+        deleteMarks()
+        deleteWords()
+        keptWords = []
+        await deleteWhisperModels()
+        VoiceDiarizer.deleteModels()
+        showsSettings = false
+        deleteVoice()
+    }
+
+    private static func size(ofFile file: URL) -> Int64? {
+        (try? file.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize).map { Int64($0) }
     }
 
     /// Bytes the files in a folder take on disk, or nil when there are none.
@@ -546,7 +579,7 @@ final class Pass1Model {
 /// Debug builds only: the CI screenshot step launches the app with AUTONITE_SCREEN set, and the
 /// app shows one screen in a known state. A release build has none of this.
 extension Pass1Model {
-    /// CI screenshots (AUTONITE_SCREEN=setup|live|cue|learner|muteoffer|practice|settings|recap): puts the
+    /// CI screenshots (AUTONITE_SCREEN=setup|live|cue|learner|muteoffer|practice|settings|mydata|recap): puts the
     /// screens in a known state so a render can be compared with the UI reference. Nothing here is
     /// saved, downloaded or recorded. Never used on a phone.
     func showFixture(_ name: String) {
@@ -565,6 +598,13 @@ extension Pass1Model {
             whisperEnabled = true
             words = PersonalWords(added: ["대박"], muted: ["짜증 나"])
             showsSettings = true
+        case "mydata":
+            route = .setup
+            words = PersonalWords(added: ["대박"], muted: ["짜증 나"])
+            fixtureData = DataSummary(voiceBytes: 12_288, marks: 3, marksBytes: 4_096, words: 2, wordsBytes: 4_096,
+                                      whisperBytes: 502_267_904, speakerModelBytes: 71_303_168)
+            showsSettings = true
+            opensMyData = true
         case "recap":
             showRecapFixture()
         default:
