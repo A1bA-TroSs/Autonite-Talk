@@ -402,11 +402,11 @@ private struct LegacyVoiceProfile: Encodable {
     let first = finder.windows(in: turns)
     #expect(first.map(\.slot) == [1])
     #expect(first.first?.window == 3...6)
-    // A slot is printed again only after enough new speech: its turn one second longer is
-    // skipped, two seconds longer is printed.
+    // A slot is printed again only after enough new speech: its turn half a second longer is
+    // skipped, a second longer is printed.
     finder.record(slot: 1, window: 3...6, match: 0.4)
-    #expect(finder.windows(in: [SpeakerTurn(slot: 1, start: 1, end: 7)]).isEmpty)
-    #expect(finder.windows(in: [SpeakerTurn(slot: 1, start: 1, end: 8)]).map(\.window) == [5...8])
+    #expect(finder.windows(in: [SpeakerTurn(slot: 1, start: 1, end: 6.5)]).isEmpty)
+    #expect(finder.windows(in: [SpeakerTurn(slot: 1, start: 1, end: 7)]).map(\.window) == [4...7])
 }
 
 // MARK: Pass 1 P3: Korean register
@@ -952,4 +952,36 @@ private struct LegacyVoiceProfile: Encodable {
     // The finished line reads both clauses, so a polite last ending doesn't hide a casual one.
     #expect(KoreanRegisterReader.read("내일 갈 거야 근데 너는 어때요", setting: .politeExpected).reading == .check)
     #expect(KoreanRegisterReader.read("내일 갈 거예요 그래서 저는 괜찮아요", setting: .politeExpected).reading == .aligned)
+}
+
+// MARK: Rubric C1: Apple and Whisper side by side in the report
+
+@Test func reportKeepsBothRecognisersAndASummaryThatSurvivesRedaction() throws {
+    var corrected = Utterance(start: 0, end: 2, text: "내일 오후에 반찬 써도 될까요", latency: 0.3, meanLevelDB: nil)
+    corrected.recordSecondListen("내일 오후에 반차 써도 될까요?")
+    var caught = Utterance(start: 3, end: 5, text: "아 그건 좀 한 심하다", latency: 0.3, meanLevelDB: nil)
+    caught.recordSecondListen("아, 그건 좀 한심하다.")
+    var same = Utterance(start: 6, end: 8, text: "그건 좀 짜증 나요", latency: 0.3, meanLevelDB: nil)
+    same.recordSecondListen("그건 좀 짜증 나요.")
+    let unread = Utterance(start: 9, end: 10, text: "네", latency: 0.3, meanLevelDB: nil)
+    let record = FeasibilityReport.SessionRecord(language: .korean, startedAt: Date(timeIntervalSince1970: 0), duration: 10,
+                                                 audioSessionMode: "measurement", utterances: [corrected, caught, same, unread],
+                                                 interruptions: 0, failures: [])
+    #expect(caught.whisperText == "아, 그건 좀 한심하다.")
+    // "한 심하다" and "한심하다" differ only in spacing, yet only Whisper's spelling is a harsh word.
+    #expect(caught.whisperDiffers == false && caught.whisperOnlyHarsh == 1)
+    #expect(record.secondListen == SecondListenSummary(reRead: 3, heardDifferently: 1, onlyWhisperHarsh: 1, onlyAppleHarsh: 0))
+
+    // scripts/redact_report.py blanks both recognisers' words; the summary still holds.
+    var object = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(record)) as? [String: Any])
+    let utterances = try #require(object["utterances"] as? [[String: Any]])
+    object["utterances"] = utterances.map { utterance -> [String: Any] in
+        var blanked = utterance
+        blanked["text"] = ""
+        if blanked["whisperText"] != nil { blanked["whisperText"] = "" }
+        return blanked
+    }
+    let redacted = try JSONDecoder().decode(FeasibilityReport.SessionRecord.self, from: JSONSerialization.data(withJSONObject: object))
+    #expect(redacted.utterances.allSatisfy { $0.text.isEmpty && ($0.whisperText ?? "").isEmpty })
+    #expect(redacted.secondListen == record.secondListen)
 }

@@ -229,8 +229,14 @@ enum SelfTest {
             log("voice selftest: user's slot found by voiceprint = \(snapshot.userSlot.map { "\($0)" } ?? "none"), expected \(expected.map { "\($0)" } ?? "none"); found at \(foundAt.map { String(format: "%.1f s", $0) } ?? "never"), the user's first turn ran \(String(format: "%.1f-%.1f s", mine[0].lowerBound, mine[0].upperBound))")
             if snapshot.userSlot == nil || snapshot.userSlot != expected { failures.append("the user's slot was not found on the user's voice") }
             if let expected {
-                if overlap(expected, mine) < userSeconds / 2 { failures.append("the user's slot covers under half of the user's speech") }
-                if overlap(expected, theirs) > otherSeconds / 2 { failures.append("the user's slot covers over half of the other voice") }
+                log("voice selftest: the user's slot covers \(String(format: "%.1f of %.1f", overlap(expected, mine), userSeconds)) s of the user's speech and \(String(format: "%.1f of %.1f", overlap(expected, theirs), otherSeconds)) s of the other's")
+                // Every turn, the last one included, sits mostly in the right slot.
+                for range in mine where overlap(expected, [range]) < (range.upperBound - range.lowerBound) / 2 {
+                    failures.append("the user's turn at \(String(format: "%.1f", range.lowerBound)) s is mostly outside the user's slot")
+                }
+                for range in theirs where overlap(expected, [range]) > (range.upperBound - range.lowerBound) / 2 {
+                    failures.append("the other's turn at \(String(format: "%.1f", range.lowerBound)) s is mostly in the user's slot")
+                }
             }
             for range in mine {
                 let match = voice.voiceMatch(start: max(range.lowerBound, range.upperBound - 3), end: range.upperBound)

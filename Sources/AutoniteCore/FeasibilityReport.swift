@@ -23,12 +23,14 @@ public struct FeasibilityReport: Codable, Sendable {
         public let startedAt: Date
         public let duration: Double
         public let audioSessionMode: String
-        public let utterances: [Utterance]
+        /// Whisper's late re-reads can still fill in `whisperText` after the record is saved.
+        public var utterances: [Utterance]
         public let interruptions: Int
         public let failures: [String]
         public let attributionMethod: AttributionMethod?
 
         public var latency: LatencyStats { LatencyStats(samples: utterances.map(\.latency)) }
+        public var secondListen: SecondListenSummary { SecondListenSummary(utterances: utterances) }
         public var attribution: AttributionScore { AttributionScore(utterances: utterances, method: attributionMethod ?? .level) }
 
         public init(language: SpeechLanguage, startedAt: Date, duration: Double, audioSessionMode: String, utterances: [Utterance], interruptions: Int, failures: [String], attributionMethod: AttributionMethod = .level) {
@@ -85,5 +87,34 @@ public struct FeasibilityReport: Codable, Sendable {
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(self) else { return "{}" }
         return String(decoding: data, as: UTF8.self)
+    }
+}
+
+/// What Whisper's second listen did over a session's pieces (rubric C1: does it catch what Apple
+/// missed?). It reads only the flags and counts, so it works on a redacted report too.
+public struct SecondListenSummary: Equatable, Sendable {
+    /// Pieces Whisper re-read.
+    public let reRead: Int
+    /// Of those, pieces where Whisper's words differ from Apple's.
+    public let heardDifferently: Int
+    /// Harsh words only Whisper heard (shown in the recap, never cued) and only Apple heard.
+    public let onlyWhisperHarsh: Int
+    public let onlyAppleHarsh: Int
+
+    public init(reRead: Int, heardDifferently: Int, onlyWhisperHarsh: Int, onlyAppleHarsh: Int) {
+        self.reRead = reRead
+        self.heardDifferently = heardDifferently
+        self.onlyWhisperHarsh = onlyWhisperHarsh
+        self.onlyAppleHarsh = onlyAppleHarsh
+    }
+
+    public init(utterances: [Utterance]) {
+        let read = utterances.filter { $0.whisperDiffers != nil }
+        self.init(
+            reRead: read.count,
+            heardDifferently: read.filter { $0.whisperDiffers == true }.count,
+            onlyWhisperHarsh: read.reduce(0) { $0 + ($1.whisperOnlyHarsh ?? 0) },
+            onlyAppleHarsh: read.reduce(0) { $0 + ($1.appleOnlyHarsh ?? 0) }
+        )
     }
 }

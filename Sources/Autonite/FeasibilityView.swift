@@ -143,6 +143,13 @@ struct FeasibilityView: View {
             LabeledContent("Accuracy when committed", value: percent(score.accuracyWhenCommitted))
             LabeledContent("Coverage", value: percent(score.coverage))
             LabeledContent("Other called Me", value: percent(score.otherAsUserRate))
+            // Rubric C1: what Whisper's second listen changed, next to Apple's words.
+            let second = SecondListenSummary(utterances: model.utterances)
+            if second.reRead > 0 {
+                LabeledContent("Whisper re-read", value: "\(second.reRead)")
+                LabeledContent("Whisper heard differently", value: "\(second.heardDifferently)")
+                LabeledContent("Harsh words only Whisper / only Apple heard", value: "\(second.onlyWhisperHarsh) / \(second.onlyAppleHarsh)")
+            }
             TextField("Notes (room, distance, voices)", text: $model.report.notes, axis: .vertical)
             ShareLink(item: model.report.jsonString()) {
                 Label("Export report JSON", systemImage: "square.and.arrow.up")
@@ -207,6 +214,9 @@ private struct UtteranceRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(utterance.text)
+            if let whisper = utterance.whisperText, utterance.whisperDiffers == true {
+                Text("Whisper: \(whisper)").font(.footnote).foregroundStyle(.secondary)
+            }
             HStack {
                 Text(String(format: "%.1f–%.1f s · %.2f s late", utterance.start, utterance.end, utterance.latency))
                 if let level = utterance.meanLevelDB {

@@ -131,10 +131,13 @@ final class VoiceDiarizer: @unchecked Sendable {
         }
     }
 
-    /// Flushes the remaining audio so every turn is final.
+    /// Flushes the remaining audio so every turn is final. FluidAudio closes its still-open
+    /// segments after this last update, so they are kept as final here; dropping them lost the
+    /// session's last turn (found by the CI voice self-test, round 2).
     func finish() throws {
         try lock.withLock {
             if let update = try diarizer.finalizeSession() { apply(update) }
+            finalized += tentative
             tentative = []
         }
     }

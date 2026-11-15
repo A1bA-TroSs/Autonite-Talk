@@ -98,8 +98,9 @@ public struct UserSlotFinder: Equatable, Sendable {
     public static let minimumSeconds = 1.0
     /// A print covers at most the last this-many seconds of a turn.
     public static let printSeconds = 3.0
-    /// A slot is printed again only after this many more seconds of its speech.
-    public static let recheckSeconds = 2.0
+    /// A slot is printed again only after this many more seconds of its speech. At 2 s the CI voice
+    /// self-test found the user's slot 3.5 s into their first turn; 1 s costs one more print.
+    public static let recheckSeconds = 1.0
     /// How far the user's slot must match above every other slot.
     public static let margin = 0.1
 

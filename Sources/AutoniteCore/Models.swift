@@ -56,6 +56,13 @@ public struct Utterance: Codable, Identifiable, Sendable, Equatable {
     public var attributionDelay: Double?
     /// Voice attribution only: cosine similarity of a slot-Me piece's voiceprint to the enrolment.
     public var voiceMatch: Double?
+    /// Whisper's second listen of this piece, once done (loop autunite-reach): its words, whether
+    /// they differ from Apple's beyond spacing and punctuation, and how many harsh words only one
+    /// of the two heard. The flag and counts survive `scripts/redact_report.py`; the words don't.
+    public var whisperText: String?
+    public var whisperDiffers: Bool?
+    public var whisperOnlyHarsh: Int?
+    public var appleOnlyHarsh: Int?
 
     public init(
         id: UUID = UUID(),
@@ -85,5 +92,14 @@ public struct Utterance: Codable, Identifiable, Sendable, Equatable {
         self.overlapped = overlapped
         self.attributionDelay = attributionDelay
         self.voiceMatch = voiceMatch
+    }
+
+    /// Records Whisper's second listen of this piece next to Apple's words.
+    public mutating func recordSecondListen(_ whisper: String, words: PersonalWords = PersonalWords()) {
+        let comparison = SecondReading.compare(apple: text, whisper: whisper, words: words)
+        whisperText = whisper
+        whisperDiffers = comparison.differs
+        whisperOnlyHarsh = comparison.onlyWhisper.count
+        appleOnlyHarsh = comparison.onlyApple.count
     }
 }

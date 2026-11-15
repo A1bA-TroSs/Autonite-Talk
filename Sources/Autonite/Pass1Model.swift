@@ -613,7 +613,8 @@ extension Pass1Model {
         let second = recap.recordCue(start: 188, end: 191, text: "그건 좀 짜증 나요", categories: [.wordChoice])
         recap.applySecondListen(start: 188, end: 191, apple: "그건 좀 짜증 나요", whisper: "그건 좀 짜증 나요.", words: words)
         recap.mark(second, .inaccurate)
-        recap.applySecondListen(start: 402, end: 405, apple: "아 그건 좀 한 심하다", whisper: "아, 그건 좀 한심하다.", words: words)
+        // A harsh word only Whisper heard: dimmed and unconfirmed, placed second so it shows on screen.
+        recap.applySecondListen(start: 120, end: 123, apple: "아 그건 좀 한 심하다", whisper: "아, 그건 좀 한심하다.", words: words)
     }
 }
 #endif
