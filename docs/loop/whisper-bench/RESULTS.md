@@ -78,3 +78,26 @@ afconvert -f WAVE -d LEI16@16000 ...
 whisperkit-cli transcribe --model <m> --language ko --audio-folder ko20 --concurrent-worker-count 1 --report --report-path rep-<m>
 python3 score.py <m>
 ```
+
+## Vocabulary prompt test (2026-11-16, on the cloud session's request)
+
+The prompt was the app's single-word Korean harsh entries in source order, joined with ", ", passed as `--prompt` (whisperkit-cli 1.1.1). It was not chosen from the bench. Same ko20 clips, warm, one worker.
+
+| Model | Prompt | Recall (expected-word / app lexicon) | False swears | Ending accuracy | Warm s per clip, mean / max |
+|---|---|---|---|---|---|
+| small | none | 0.78 / 0.89 | 0 | 20/20 | 0.34 / 0.43 |
+| small | lexicon | 0.89 / 0.89 | 0 | 20/20 | 1.98 / 2.07 |
+| 626MB | none | 0.89 / 0.89 | 0 | 20/20 | 1.11 / 1.20 |
+| 626MB | lexicon | 0.89 / 0.89 | 0 | 20/20 | 2.67 / 2.74 |
+
+**Verdict: drop the prompt.**
+- It doesn't recover p19 on either model. Small still writes "좋댄다" and 626MB "존댄다".
+- It adds no false swears. Both scorers still flag only p08 "알아서 해", the app's own deliberate entry.
+- It makes small about 6× slower (0.34 → 1.98 s) and 626MB about 2.4× slower (1.11 → 2.67 s), over M7's 1.0 s bound.
+- It damaged small's ordinary text:
+  - p05 "아니라요" became "아니다요"
+  - p13 "좀" became "종"
+  - p15 "과제" became "바제"
+  - p17 "아 씨 짜증나" became "씨따증나"
+- The one gain, p06 "존나" (expected-word recall 0.78 → 0.89 on small), the app lexicon already caught through "어이없".
+- M7 stays a measured gap: 8/9 swear lines.

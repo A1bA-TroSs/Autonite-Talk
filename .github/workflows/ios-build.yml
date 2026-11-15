@@ -56,8 +56,16 @@ jobs:
           xcrun simctl boot "$udid"
           xcrun simctl bootstatus "$udid" -b
           xcrun simctl install "$udid" "$RUNNER_TEMP/Autonite-sim.app"
+          echo "installed, launching"
           bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
-          SIMCTL_CHILD_AUTONITE_SELFTEST=1 perl -e 'alarm 120; exec @ARGV' xcrun simctl launch --console "$udid" "$bundle_id" | tee selftest.log || true
+          # The first launch after a cold boot can print nothing at all (run 43753550790: no output in
+          # 120 s from the app code that passed in run 43752510565). Launch again only when the app never
+          # started; a self-test that started and failed is not retried.
+          for attempt in 1 2; do
+            SIMCTL_CHILD_AUTONITE_SELFTEST=1 perl -e 'alarm 150; exec @ARGV' xcrun simctl launch --console --terminate-running-process "$udid" "$bundle_id" | tee selftest.log || true
+            grep -qx "selftest started" selftest.log && break
+            echo "attempt $attempt: the app printed nothing"
+          done
           grep -qx "autonite selftest succeeded" selftest.log
 
       # Rubric M9: Whisper tiny downloads into a temporary folder and reads speech made with `say`.
