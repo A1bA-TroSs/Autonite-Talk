@@ -15,10 +15,19 @@ public enum ReadingCategory: String, Codable, CaseIterable, Sendable {
 public struct CategorySettings: Codable, Equatable, Sendable {
     public var register: RegisterSetting
     public var wordChoice: WordChoiceSetting
+    /// The user's own added and muted words. Not part of a preset: the app fills it in from the
+    /// word list saved on the phone before reading.
+    public var words: PersonalWords
 
-    public init(register: RegisterSetting, wordChoice: WordChoiceSetting) {
+    public init(register: RegisterSetting, wordChoice: WordChoiceSetting, words: PersonalWords = PersonalWords()) {
         self.register = register
         self.wordChoice = wordChoice
+        self.words = words
+    }
+
+    /// These settings with the user's word list applied.
+    public func with(_ words: PersonalWords) -> CategorySettings {
+        CategorySettings(register: register, wordChoice: wordChoice, words: words)
     }
 
     public static let niceDefault = CategorySettings(register: .politeExpected, wordChoice: .gentle)
@@ -27,6 +36,9 @@ public struct CategorySettings: Codable, Equatable, Sendable {
 /// Relationship presets that propose settings. A preset never takes effect until the user confirms it.
 public enum SettingsPreset: String, Codable, CaseIterable, Sendable {
     case senior
+    /// Speaking to a junior teammate with 존댓말 expected (research 2026-11-16 §5.8: 81.1% of
+    /// Korean workers say superiors should use 존댓말, Gapjil119 2024).
+    case junior
     case stranger
     case colleague
     case closeFriend
@@ -35,7 +47,7 @@ public enum SettingsPreset: String, Codable, CaseIterable, Sendable {
 
     public var settings: CategorySettings {
         switch self {
-        case .senior, .stranger: return .niceDefault
+        case .senior, .junior, .stranger: return .niceDefault
         case .colleague: return CategorySettings(register: .either, wordChoice: .gentle)
         case .closeFriend: return CategorySettings(register: .casualFine, wordChoice: .gentle)
         case .firmNo: return CategorySettings(register: .politeExpected, wordChoice: .bluntFine)
@@ -112,7 +124,7 @@ public enum PhraseReader {
             : EnglishRegisterReader.read(phrase, setting: settings.register)
         var readings: [ReadingCategory: Reading] = [
             .register: register,
-            .wordChoice: WordChoiceReader.read(phrase, setting: settings.wordChoice),
+            .wordChoice: WordChoiceReader.read(phrase, setting: settings.wordChoice, words: settings.words),
         ]
         for category in ReadingCategory.allCases where !category.isMeasured {
             readings[category] = .notMeasured

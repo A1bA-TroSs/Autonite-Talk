@@ -234,6 +234,7 @@ struct SessionSetupView: View {
     private func presetKey(_ preset: SettingsPreset) -> CopyKey {
         switch preset {
         case .senior: .presetSenior
+        case .junior: .presetJunior
         case .stranger: .presetStranger
         case .colleague: .presetColleague
         case .closeFriend: .presetCloseFriend

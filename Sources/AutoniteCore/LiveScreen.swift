@@ -26,16 +26,28 @@ public struct Onboarding: Equatable, Sendable {
 
 /// What the cue card shows, in DESIGN.md's order (SPEC AC13).
 public struct Cue: Equatable, Sendable {
-    public let phrase: String
+    public internal(set) var phrase: String
     public let possibleReading: String
     public let whyHere: String
-    public let tryNext: String
+    public internal(set) var tryNext: String
     public let categories: [ReadingCategory]
+    /// Flagged moments this card stands for since it was last closed: hits close together share one
+    /// card and one buzz (research 2026-11-16 §3).
+    public internal(set) var count = 1
+    /// Apple's words, kept when Whisper's second listen changed the quote.
+    public internal(set) var firstHeard: String?
+    /// Whisper has re-read the words on the card.
+    public internal(set) var checkedAgain = false
+    /// A short learner tip, shown when the app is in English and the speech is Korean.
+    public internal(set) var note: String?
 }
 
 public enum CueComposer {
     /// Builds the card for a phrase with at least one mismatch. Register comes first when both apply.
-    public static func compose(phrase: String, readings: PhraseReadings, language: SpeechLanguage) -> Cue? {
+    /// The explanation is in the app's language; the next line is in the speech language, since it
+    /// is a sentence to say (INTENTIONAL §7: UI and speech language are chosen separately).
+    public static func compose(phrase: String, readings: PhraseReadings, language: SpeechLanguage, uiLanguage: SpeechLanguage? = nil) -> Cue? {
+        let ui = uiLanguage ?? language
         let mismatches = readings.mismatches
         guard let first = mismatches.first else { return nil }
         let reading: CopyKey = first == .register ? .readingRegisterCasual : .readingWordChoiceHarsh
@@ -43,8 +55,12 @@ public enum CueComposer {
         let next = first == .register
             ? (language == .korean ? politeVersion(of: phrase) : nil) ?? Copy.text(.nextRegisterFallback, language)
             : Copy.text(.nextWordChoice, language)
-        return Cue(phrase: phrase, possibleReading: Copy.text(reading, language), whyHere: Copy.text(why, language),
-                   tryNext: next, categories: mismatches)
+        var cue = Cue(phrase: phrase, possibleReading: Copy.text(reading, ui), whyHere: Copy.text(why, ui),
+                      tryNext: next, categories: mismatches)
+        if first == .register, language == .korean, ui == .english {
+            cue.note = Copy.text(.learnerRegisterNote, .english)
+        }
+        return cue
     }
 
     /// The last sentence with a 반말 ending swapped for 해요체, when the ending is a common one.
@@ -94,15 +110,53 @@ public struct LiveScreen: Equatable, Sendable {
         needle = 0
     }
 
-    /// Takes a pipeline outcome. Returns true when the caller should play the buzz.
+    /// Takes a pipeline outcome. Returns true when the card changed and the needle slammed; the
+    /// caller decides whether a buzz plays (`CuePacer`).
+    ///
+    /// `sameMoment` is the final line of words an early cue already flagged: it replaces the card's
+    /// words without counting a new hit, and does nothing if the user already closed that card.
     @discardableResult
-    public mutating func receive(_ outcome: ReadingPipeline.Outcome, phrase: String, language: SpeechLanguage) -> Bool {
+    public mutating func receive(_ outcome: ReadingPipeline.Outcome, phrase: String, language: SpeechLanguage,
+                                 uiLanguage: SpeechLanguage? = nil, sameMoment: Bool = false) -> Bool {
         guard phase != .idle, phase != .stopped else { return false }
         guard case .read(let readings, true) = outcome,
-              let cue = CueComposer.compose(phrase: phrase, readings: readings, language: language) else { return false }
-        phase = .cueWaiting(cue)
+              var cue = CueComposer.compose(phrase: phrase, readings: readings, language: language, uiLanguage: uiLanguage) else { return false }
+        let previous = currentCue
+        if sameMoment, previous == nil { return false }
+        if let previous { cue.count = sameMoment ? previous.count : previous.count + 1 }
+        show(cue)
         needle = 1
         return true
+    }
+
+    /// The card on screen or waiting to be opened.
+    public var currentCue: Cue? {
+        switch phase {
+        case .cueWaiting(let cue), .cueOpen(let cue): cue
+        default: nil
+        }
+    }
+
+    /// Whisper's second listen of the words on the card. The quote becomes Whisper's words and
+    /// Apple's are kept when they differ; for a register cue the next line is rebuilt from the
+    /// corrected words. The reasons stay as Apple's reading found them: Whisper corrects text and
+    /// never adds a cue or a category.
+    public mutating func applySecondListen(_ text: String, language: SpeechLanguage) {
+        guard var cue = currentCue else { return }
+        if SecondReading.squash(text) != SecondReading.squash(cue.phrase) {
+            cue.firstHeard = cue.firstHeard ?? cue.phrase
+            cue.phrase = text
+        }
+        cue.checkedAgain = true
+        if cue.categories.first == .register, language == .korean, let polite = CueComposer.politeVersion(of: text) {
+            cue.tryNext = polite
+        }
+        show(cue)
+    }
+
+    /// Keeps an open card open, so a newer hit doesn't close the sheet the user is reading.
+    private mutating func show(_ cue: Cue) {
+        if case .cueOpen = phase { phase = .cueOpen(cue) } else { phase = .cueWaiting(cue) }
     }
 
     /// The meter rests again after a moment; the cue stays available.

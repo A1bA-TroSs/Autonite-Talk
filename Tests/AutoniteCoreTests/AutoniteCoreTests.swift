@@ -606,3 +606,200 @@ private final class FakeEnroller: SpeakerEnrolling {
     #expect(MeterGeometry.isAmber(MeterGeometry.needleAngle(1)))
     #expect(!MeterGeometry.isAmber(MeterGeometry.needleAngle(0)))
 }
+
+// MARK: Loop autunite-reach (2026-11-16): word list, Whisper second listen, recap, pacing, practice
+
+@Test func personalWordsAddAndMuteChangeWhatIsFlagged() {
+    var words = PersonalWords()
+    #expect(WordChoiceReader.read("이거 완전 별로네", setting: .gentle, words: words) == .aligned)
+    words.add(" 별로 ")
+    #expect(words.added == ["별로"])
+    #expect(WordChoiceReader.read("이거 완전 별로네", setting: .gentle, words: words) == .check)
+    words.mute("존나")
+    #expect(WordChoiceReader.read("존나 웃기네", setting: .gentle, words: words) == .aligned)
+    #expect(WordChoiceReader.read("존나 웃기네", setting: .gentle) == .check)
+    // Adding a muted built-in word unmutes it rather than listing it twice.
+    words.add("존나")
+    #expect(words.muted.isEmpty)
+    #expect(!words.added.contains("존나"))
+    #expect(WordChoiceReader.read("존나 웃기네", setting: .gentle, words: words) == .check)
+    // English additions match whole words only.
+    words.add("Whatever")
+    #expect(WordChoiceReader.harshWords(in: "Whatever, fine.", words: words) == ["whatever"])
+    #expect(WordChoiceReader.harshWords(in: "whateverland", words: words).isEmpty)
+    // The settings carry the list into the phrase reader and the early reader.
+    let settings = CategorySettings.niceDefault.with(words)
+    #expect(PhraseReader.read("이거 완전 별로네요.", language: .korean, settings: settings)[.wordChoice] == .check)
+    #expect(EarlyReader.hits(in: "이거 별로", language: .korean, settings: settings) == 1)
+    words.reset("별로")
+    #expect(words.added == ["whatever"])
+}
+
+@Test func harshHitsCountEachSwearOnceAndKeepSpacesMeaningful() {
+    // A longer entry wins: 개새끼 is one hit, and a repeat is a second one.
+    #expect(WordChoiceReader.harshOccurrences(in: "이 개새끼가") == 1)
+    #expect(WordChoiceReader.harshOccurrences(in: "씨발 진짜 씨발") == 2)
+    // Spellings and spaced forms the recognisers wrote on the ko20 bench (docs/loop/whisper-bench).
+    for phrase in ["개 짜증 나네", "아 짜증 나", "개짜증", "개소리 하지 마", "존내 웃기네", "시팔", "븅신 같아", "좃 됐다"] {
+        #expect(WordChoiceReader.read(phrase, setting: .gentle) == .check, "\(phrase)")
+    }
+    // Spaces are never removed wholesale: these ordinary sentences hold no swear.
+    for phrase in ["세 시 발표 준비됐어요?", "그 병 신경 쓰지 마세요.", "hello there", "a shell script"] {
+        #expect(WordChoiceReader.read(phrase, setting: .gentle) == .aligned, "\(phrase)")
+    }
+    // Where the hit sits in the original phrase.
+    let hit = WordChoiceReader.hits(in: "아, 씨발!").first
+    #expect(hit?.word == "씨발")
+    #expect(hit?.offset == 3)
+    #expect(hit?.length == 2)
+}
+
+@Test func whisperOnlyCorrectsTextAndAnotherSpeakersSwearNeverCues() {
+    // Known silence phrases, sound tags, special tokens and stray scripts are dropped.
+    #expect(SecondReading.clean("시청해주셔서 감사합니다.") == nil)
+    #expect(SecondReading.clean("[음악] 네, 알겠습니다 <|ko|>") == "네, 알겠습니다")
+    #expect(SecondReading.clean("존다а んだ 웃기네") == "존다 웃기네")
+    #expect(SecondReading.clean("same same same", compressionRatio: 3) == nil)
+    #expect(SecondReading.clean("음", noSpeechProbability: 0.9, averageLogProbability: -1.5) == nil)
+    // Only the user's verified speech is re-read.
+    let mine = Utterance(start: 0, end: 2, text: "아 진짜 별로예요", latency: 0, meanLevelDB: nil,
+                         predicted: .user, predictionConfidence: 1, overlapped: false, voiceMatch: 0.8)
+    #expect(SecondReading.admits(mine))
+    let theirs = Utterance(start: 0, end: 2, text: "씨발 진짜", latency: 0, meanLevelDB: nil, predicted: .other, predictionConfidence: 1)
+    #expect(!SecondReading.admits(theirs))
+    var unverified = mine
+    unverified.voiceMatch = 0.4
+    #expect(!SecondReading.admits(unverified))
+    var overlapped = mine
+    overlapped.overlapped = true
+    #expect(!SecondReading.admits(overlapped))
+    // Another speaker's swear never cues, however clearly it was heard.
+    var screen = LiveScreen()
+    screen.start()
+    let theirsCued = screen.receive(ReadingPipeline.evaluate(theirs, language: .korean, settings: .niceDefault), phrase: theirs.text, language: .korean)
+    #expect(!theirsCued)
+    // A word only Whisper heard changes nothing on screen: there is no card to correct.
+    screen.applySecondListen("아 씨발 진짜 별로예요", language: .korean)
+    #expect(screen.phase == .listening)
+    #expect(screen.needle == 0)
+    // In the recap it is listed, uncued.
+    var recap = SessionRecap()
+    recap.applySecondListen(start: 0, end: 2, apple: mine.text, whisper: "아 씨발 진짜 별로예요")
+    #expect(recap.cueCount == 0)
+    #expect(recap.moments.count == 1)
+    #expect(recap.moments.first?.cued == false)
+    #expect(recap.moments.first?.onlyWhisper == ["씨발"])
+    // Whisper agreeing with Apple on a clean piece adds nothing.
+    recap.applySecondListen(start: 5, end: 7, apple: "네 알겠습니다", whisper: "네, 알겠습니다.")
+    #expect(recap.moments.count == 1)
+}
+
+@Test func cueCardTakesWhisperWordsButKeepsItsReasons() {
+    var screen = LiveScreen()
+    screen.start()
+    let mine = Utterance(start: 0, end: 2, text: "그거 내가 할게.", latency: 0, meanLevelDB: nil,
+                         predicted: .user, predictionConfidence: 1, overlapped: false, voiceMatch: 0.8)
+    screen.receive(ReadingPipeline.evaluate(mine, language: .korean, settings: .niceDefault), phrase: mine.text, language: .korean)
+    screen.applySecondListen("그거 내가 할 거야.", language: .korean)
+    let cue = screen.currentCue
+    #expect(cue?.phrase == "그거 내가 할 거야.")
+    #expect(cue?.firstHeard == "그거 내가 할게.")
+    #expect(cue?.checkedAgain == true)
+    #expect(cue?.categories == [.register])
+    #expect(cue?.tryNext == "그거 내가 할 거예요.")
+    // The same words with other punctuation are not a correction.
+    screen.applySecondListen("그거 내가 할 거야", language: .korean)
+    #expect(screen.currentCue?.firstHeard == "그거 내가 할게.")
+}
+
+@Test func recapMergesAMomentAndCarriesWhisperWordsAndMarks() {
+    var recap = SessionRecap(practice: .askManager)
+    let early = recap.recordCue(start: 4, end: 7, text: "아 씨발 이거", categories: [.wordChoice])
+    let final = recap.recordCue(start: 3.5, end: 8, text: "아 씨발 이거 진짜 별로야.", categories: [.register, .wordChoice])
+    #expect(early == final)
+    #expect(recap.moments.count == 1)
+    #expect(recap.moments[0].categories == [.register, .wordChoice])
+    #expect(recap.moments[0].apple == "아 씨발 이거 진짜 별로야.")
+    recap.recordCue(start: 20, end: 22, text: "그거 내가 할게.", categories: [.register])
+    #expect(recap.cueCount == 2)
+    #expect(recap.cueCount(.register) == 2)
+    #expect(recap.cueCount(.wordChoice) == 1)
+    recap.applySecondListen(start: 3.5, end: 8, apple: "아 씨발 이거 진짜 별로야.", whisper: "아 씨발 이거 진짜 별로야")
+    #expect(recap.moments[0].whisper == "아 씨발 이거 진짜 별로야")
+    #expect(!recap.moments[0].heardDifferently)
+    // Whisper heard 존댓말 where Apple heard 반말: the cue stays, and the recap shows the disagreement.
+    recap.applySecondListen(start: 20, end: 22, apple: "그거 내가 할게.", whisper: "그거 제가 할게요.")
+    #expect(recap.moments[1].heardDifferently)
+    #expect(recap.moments[1].cued)
+    #expect(recap.moments[1].quote == "그거 제가 할게요.")
+    recap.mark(early, .inaccurate)
+    #expect(recap.moments[0].verdict == .inaccurate)
+    #expect(recap.moments[0].harshWords() == ["씨발"])
+    #expect(recap.practice == .askManager)
+}
+
+@Test func buzzesAreSpacedAndCloseHitsShareOneCard() {
+    var pacer = CuePacer()
+    #expect(pacer.allowBuzz(at: 10))
+    #expect(!pacer.allowBuzz(at: 11.5))
+    #expect(!pacer.allowBuzz(at: 12.9))
+    #expect(pacer.allowBuzz(at: 13.1))
+    var screen = LiveScreen()
+    screen.start()
+    let first = Utterance(start: 0, end: 2, text: "아 씨발 진짜", latency: 0, meanLevelDB: nil,
+                          predicted: .user, predictionConfidence: 1, overlapped: false, voiceMatch: 0.8)
+    let outcome = ReadingPipeline.evaluate(first, language: .korean, settings: .niceDefault)
+    let shown = screen.receive(outcome, phrase: first.text, language: .korean)
+    #expect(shown)
+    #expect(screen.currentCue?.count == 1)
+    // The final line of the same moment replaces the words without counting again.
+    let finalLine = screen.receive(outcome, phrase: "아 씨발 진짜 왜 이래", language: .korean, sameMoment: true)
+    #expect(finalLine)
+    #expect(screen.currentCue?.count == 1)
+    #expect(screen.currentCue?.phrase == "아 씨발 진짜 왜 이래")
+    // A new hit before the card is closed counts on the same card, and an open card stays open.
+    screen.openCue()
+    let again = screen.receive(outcome, phrase: "또 씨발", language: .korean)
+    #expect(again)
+    #expect(screen.currentCue?.count == 2)
+    guard case .cueOpen = screen.phase else {
+        Issue.record("a newer hit closed the open card")
+        return
+    }
+    // Once the user closed the card, a late final line of that moment doesn't reopen it.
+    screen.dismissCue()
+    let reopened = screen.receive(outcome, phrase: "또 씨발", language: .korean, sameMoment: true)
+    #expect(!reopened)
+    #expect(screen.phase == .listening)
+}
+
+@Test func practiceScenariosPresetsAndLearnerCards() {
+    for scenario in PracticeScenario.allCases {
+        #expect(!Copy.text(scenario.titleKey, .korean).isEmpty)
+        #expect(!Copy.text(scenario.promptKey, .english).isEmpty)
+    }
+    #expect(PracticeScenario.requestJunior.settings.register == .politeExpected)
+    #expect(PracticeScenario.disagreeFriend.settings.register == .casualFine)
+    #expect(SettingsPreset.junior.settings == .niceDefault)
+    // A learner (app in English, speech in Korean) gets the reasons in English and the next line in Korean.
+    let readings = PhraseReader.read("그거 내가 할게.", language: .korean, settings: .niceDefault)
+    let cue = CueComposer.compose(phrase: "그거 내가 할게.", readings: readings, language: .korean, uiLanguage: .english)
+    #expect(cue?.possibleReading == Copy.text(.readingRegisterCasual, .english))
+    #expect(cue?.tryNext == "그거 내가 할게요.")
+    #expect(cue?.note == Copy.text(.learnerRegisterNote, .english))
+    #expect(CueComposer.compose(phrase: "그거 내가 할게.", readings: readings, language: .korean)?.note == nil)
+}
+
+@Test func reReadQueuePutsCuedPiecesFirstAndDropsUncuedWhenFull() {
+    var queue = ReReadQueue<Int>(capacity: 3)
+    queue.push(1, cued: false)
+    queue.push(2, cued: true)
+    queue.push(3, cued: false)
+    // Full: the oldest piece without a cue goes.
+    queue.push(4, cued: false)
+    #expect(queue.count == 3)
+    #expect(queue.pop() == 2)
+    #expect(queue.pop() == 3)
+    #expect(queue.pop() == 4)
+    #expect(queue.pop() == nil)
+}
