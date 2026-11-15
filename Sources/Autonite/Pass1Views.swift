@@ -124,6 +124,43 @@ struct OptionPicker<Value: Hashable>: View {
     }
 }
 
+/// Lays its children out in rows and wraps to the next row instead of clipping or scrolling.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            widest = max(widest, x - spacing)
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: proposal.width ?? widest, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
 private struct SpeechLanguagePicker: View {
     @Bindable var model: Pass1Model
 
@@ -223,12 +260,11 @@ struct SessionSetupView: View {
                     .background(Palette.liveSurface, in: RoundedRectangle(cornerRadius: 14))
 
                 Text(model.copy(.presetsTitle)).font(.headline)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
-                        ForEach(SettingsPreset.allCases, id: \.self) { preset in
-                            Button(model.copy(presetKey(preset))) { model.setup.propose(preset) }
-                                .buttonStyle(.bordered)
-                        }
+                // Wrapping rows, so every preset is in view and none is cut off at the edge.
+                FlowLayout(spacing: 8) {
+                    ForEach(SettingsPreset.allCases, id: \.self) { preset in
+                        Button(model.copy(presetKey(preset))) { model.setup.propose(preset) }
+                            .buttonStyle(.bordered)
                     }
                 }
                 if let proposed = model.setup.proposed {
@@ -1060,8 +1096,7 @@ struct RecapView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                ZStack(alignment: .topTrailing) {
-                    RecapHeaderArt().frame(width: 120, height: 92).offset(x: 6, y: -10)
+                HStack(alignment: .top, spacing: 8) {
                     VStack(alignment: .leading, spacing: 10) {
                         if model.recap.practice != nil {
                             Label(model.copy(.practiceBadge), systemImage: "figure.wave")
@@ -1075,14 +1110,15 @@ struct RecapView: View {
                         if let practice = model.recap.practice {
                             Text(model.copy(practice.titleKey)).font(.headline)
                         }
-                        Text(model.copy(.recapGoal))
-                            .foregroundStyle(Palette.reportMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if let intention {
-                            Text("“\(intention)”").font(.headline).fixedSize(horizontal: false, vertical: true)
-                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer(minLength: 0)
+                    RecapHeaderArt().frame(width: 104, height: 76)
+                }
+                Text(model.copy(.recapGoal))
+                    .foregroundStyle(Palette.reportMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let intention {
+                    Text("“\(intention)”").font(.headline).fixedSize(horizontal: false, vertical: true)
                 }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                     StatTile(title: model.copy(.recapLength), value: clockText(model.recap.duration))

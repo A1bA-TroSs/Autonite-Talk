@@ -71,7 +71,8 @@ jobs:
           say -o "$RUNNER_TEMP/en.aiff" "I will send you the report tomorrow morning."
           afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/en.aiff" "$clips/en.wav"
           say -v '?' | grep -i 'ko_KR' || true
-          korean_voice=$(say -v '?' | awk '/ko_KR/ {print $1; exit}')
+          # Yuna is the standard Korean voice; the novelty voices (Eddy, Flo…) need their full names.
+          korean_voice=$(say -v '?' | awk '$2 == "ko_KR" {print $1; exit}')
           if [ -n "$korean_voice" ]; then
             say -v "$korean_voice" -o "$RUNNER_TEMP/ko.aiff" "내일 아침에 보고서를 보내 드릴게요."
             afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/ko.aiff" "$clips/ko.wav"
