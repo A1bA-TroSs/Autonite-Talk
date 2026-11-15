@@ -109,11 +109,28 @@ enum SelfTest {
         var failures: [String] = []
         do {
             let started = Date()
-            let results = try await WhisperReader.selfTest(clips: clips, variant: "openai_whisper-tiny")
-            log("whisper selftest: download, load and reads took \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
-            for (result, clip) in zip(results, clips) {
-                let text = result.text ?? ""
-                log("whisper selftest \(clip.language.rawValue): \(String(format: "%.2f", result.seconds)) s: \(text.isEmpty ? "(nothing)" : text)")
+            let reader = try await WhisperReader.selfTestReader(variant: "openai_whisper-tiny")
+            log("whisper selftest: tiny downloaded and loaded in \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
+            for clip in clips {
+                let samples = try WhisperReader.samples(ofFile: clip.path)
+                log("whisper selftest \(clip.language.rawValue) clip: \(String(format: "%.1f", Double(samples.count) / 16_000)) s of audio")
+                // Rubric M6: the main actor keeps running while Whisper reads. A ticker on the main
+                // actor counts 20 ms steps during the read; a read on the main actor would stop it.
+                let ticker = Task { @MainActor () -> Int in
+                    var ticks = 0
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .milliseconds(20))
+                        ticks += 1
+                    }
+                    return ticks
+                }
+                let readStarted = Date()
+                let text = try await reader.read(samples, language: clip.language) ?? ""
+                let seconds = Date().timeIntervalSince(readStarted)
+                ticker.cancel()
+                let ticks = await ticker.value
+                log("whisper selftest \(clip.language.rawValue): \(String(format: "%.2f", seconds)) s, main actor ticked \(ticks) times: \(text.isEmpty ? "(nothing)" : text)")
+                if seconds >= 0.3, ticks < 3 { failures.append("the main actor stalled during the \(clip.language.rawValue) read") }
                 switch clip.language {
                 case .english:
                     if !text.lowercased().contains("tomorrow") { failures.append("the English clip did not read as 'tomorrow'") }
@@ -123,7 +140,6 @@ enum SelfTest {
                     }
                 }
             }
-            if results.count != clips.count { failures.append("\(results.count) reads for \(clips.count) clips") }
         } catch {
             failures.append("Whisper failed: \(error.localizedDescription)")
         }

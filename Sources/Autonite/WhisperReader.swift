@@ -117,10 +117,9 @@ final class WhisperReader: @unchecked Sendable {
         return text.isEmpty ? nil : text
     }
 
-    /// The CI Simulator self-test (rubric M9): downloads `variant` into a temporary folder, reads
-    /// each synthesized clip through the same `read` the app uses, and reports the words and how
-    /// long each read took. Never used on a phone.
-    static func selfTest(clips: [(path: String, language: SpeechLanguage)], variant: String) async throws -> [(clip: String, text: String?, seconds: Double)] {
+    /// The CI Simulator self-test (rubric M9): a reader with `variant` downloaded into a temporary
+    /// folder, so the test goes through the same `read` the app uses. Never used on a phone.
+    static func selfTestReader(variant: String) async throws -> WhisperReader {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("whisper-selftest", isDirectory: true)
         let folder = try await WhisperKit.download(variant: variant, downloadBase: base, from: repo)
         let config = WhisperKitConfig(model: variant, downloadBase: base, modelRepo: repo, modelFolder: folder.path,
@@ -128,14 +127,12 @@ final class WhisperReader: @unchecked Sendable {
         let kit = try await WhisperKit(config)
         let reader = WhisperReader()
         reader.lock.withLock { reader.kit = kit }
-        var results: [(clip: String, text: String?, seconds: Double)] = []
-        for clip in clips {
-            let samples = try AudioProcessor.loadAudioAsFloatArray(fromPath: clip.path)
-            let started = Date()
-            let text = try await reader.read(samples, language: clip.language)
-            results.append((clip.path, text, Date().timeIntervalSince(started)))
-        }
-        return results
+        return reader
+    }
+
+    /// 16 kHz mono samples of an audio file, for the self-test's synthesized clips.
+    static func samples(ofFile path: String) throws -> [Float] {
+        try AudioProcessor.loadAudioAsFloatArray(fromPath: path)
     }
 }
 #endif

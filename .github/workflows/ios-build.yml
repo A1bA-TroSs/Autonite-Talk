@@ -70,13 +70,23 @@ jobs:
           mkdir -p "$clips"
           say -o "$RUNNER_TEMP/en.aiff" "I will send you the report tomorrow morning."
           afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/en.aiff" "$clips/en.wav"
+          say -v '?' | grep -i 'ko_KR' || true
           korean_voice=$(say -v '?' | awk '/ko_KR/ {print $1; exit}')
           if [ -n "$korean_voice" ]; then
             say -v "$korean_voice" -o "$RUNNER_TEMP/ko.aiff" "내일 아침에 보고서를 보내 드릴게요."
             afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/ko.aiff" "$clips/ko.wav"
-          else
-            echo "No Korean voice on this runner; the Korean read is skipped."
           fi
+          for clip in "$clips"/*.wav; do
+            seconds=$(afinfo "$clip" | awk '/estimated duration/ {print $3}')
+            echo "$(basename "$clip"): ${seconds:-0} s"
+            # A listed voice whose asset isn't installed writes an empty file; that clip is left out.
+            if [ "$(echo "${seconds:-0} < 1" | bc)" = 1 ]; then
+              echo "$(basename "$clip") holds no speech; left out of the test."
+              rm "$clip"
+            fi
+          done
+          [ -f "$clips/en.wav" ] || { echo "The English clip holds no speech."; exit 1; }
+          [ -f "$clips/ko.wav" ] || echo "No usable Korean voice on this runner; the Korean read is skipped."
           xcrun simctl terminate "$udid" "$bundle_id" || true
           SIMCTL_CHILD_AUTONITE_SELFTEST=whisper perl -e 'alarm 420; exec @ARGV' xcrun simctl launch --console "$udid" "$bundle_id" | tee whisper-selftest.log || true
           grep -qx "autonite whisper selftest succeeded" whisper-selftest.log
