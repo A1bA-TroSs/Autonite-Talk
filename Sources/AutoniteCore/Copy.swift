@@ -16,7 +16,7 @@ public enum CopyKey: String, CaseIterable, Sendable {
     case presetSenior, presetStranger, presetColleague, presetCloseFriend, presetFirmNo
     case proposalPending, proposalConfirm, proposalDiscard
     case registerTitle, registerPolite, registerCasualFine, registerEither
-    case wordChoiceTitle, wordChoiceGentle, wordChoiceBlunt
+    case wordChoiceTitle, wordChoiceGentle, wordChoiceBlunt, readingRulesTitle
     case startSession
     // Live
     case listening, listeningDetail, endSession, notMeasuredTitle, notMeasured
@@ -107,6 +107,7 @@ public enum Copy {
         .wordChoiceTitle: "Word choice",
         .wordChoiceGentle: "Gentle",
         .wordChoiceBlunt: "Blunt is fine",
+        .readingRulesTitle: "Speech level · word choice",
         .startSession: "Start session",
         .listening: "Listening",
         .listeningDetail: "A cue appears here only when it may help.",
@@ -280,6 +281,7 @@ public enum Copy {
         .wordChoiceTitle: "단어 선택",
         .wordChoiceGentle: "부드럽게",
         .wordChoiceBlunt: "직설적이어도 괜찮아요",
+        .readingRulesTitle: "높임말 · 단어 선택",
         .startSession: "대화 시작",
         .listening: "듣고 있어요",
         .listeningDetail: "도움이 될 때만 여기에 신호가 떠요.",

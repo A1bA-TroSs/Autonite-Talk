@@ -135,11 +135,12 @@ enum SelfTest {
                     return ticks
                 }
                 let readStarted = Date()
-                let text = try await reader.read(samples, language: clip.language) ?? ""
+                let heard = try await reader.read(samples, language: clip.language)
+                let text = heard?.text ?? ""
                 let seconds = Date().timeIntervalSince(readStarted)
                 ticker.cancel()
                 let ticks = await ticker.value
-                log("whisper selftest \(clip.language.rawValue): \(String(format: "%.2f", seconds)) s, main actor ticked \(ticks) times: \(text.isEmpty ? "(nothing)" : text)")
+                log("whisper selftest \(clip.language.rawValue): \(String(format: "%.2f", seconds)) s, main actor ticked \(ticks) times, sure: \(heard?.sure == true): \(text.isEmpty ? "(nothing)" : text)")
                 if seconds >= 0.3, ticks < 3 { failures.append("the main actor stalled during the \(clip.language.rawValue) read") }
                 switch clip.language {
                 case .english:

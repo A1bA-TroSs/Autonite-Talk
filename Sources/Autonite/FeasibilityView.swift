@@ -150,13 +150,19 @@ struct FeasibilityView: View {
                 LabeledContent("Whisper heard differently", value: "\(second.heardDifferently)")
                 LabeledContent("Harsh words only Whisper / only Apple heard", value: "\(second.onlyWhisperHarsh) / \(second.onlyAppleHarsh)")
             }
-            // Rubric C1: early cues, how long the voice gate held them, and how far before the end
-            // of the sentence they landed.
+            // Rubric C1: early cues, how long the voice gate held them, how far before the end of the
+            // sentence they landed, and the delay from the flagged word to its text and to the cue.
             let early = EarlyCueSummary(records: model.earlyCues)
             if early.cued + early.dropped > 0 {
                 LabeledContent("Early cues fired / dropped", value: "\(early.cued) / \(early.dropped)")
                 LabeledContent("Voice gate hold, median / max", value: "\(format(early.medianWait)) / \(format(early.maximumWait))")
                 LabeledContent("Fired before the line ended, median", value: format(early.medianLead))
+                LabeledContent("Word to its text (Apple), median", value: format(early.medianTextLag))
+                LabeledContent("Word to cue, median", value: format(early.medianWordToCue))
+                LabeledContent("Diarizer behind the mic, median", value: format(early.medianDiarizerLag))
+                ForEach(early.sortedDropReasons) { drop in
+                    LabeledContent("Dropped: \(drop.reason)", value: "\(drop.count)")
+                }
             }
             TextField("Notes (room, distance, voices)", text: $model.report.notes, axis: .vertical)
             ShareLink(item: model.report.jsonString()) {

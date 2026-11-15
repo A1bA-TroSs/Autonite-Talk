@@ -254,6 +254,9 @@ struct OnboardingView: View {
 
 struct SessionSetupView: View {
     @Bindable var model: Pass1Model
+    /// The speech level and word choice pickers fold into one row, so the start button and
+    /// practice stay in view; the row shows what is set.
+    @State private var showsReadingRules = false
 
     var body: some View {
         ScrollView {
@@ -290,12 +293,36 @@ struct SessionSetupView: View {
                     .background(Palette.liveSurface, in: RoundedRectangle(cornerRadius: 16))
                 }
 
-                Text(model.copy(.registerTitle)).font(.headline)
-                OptionPicker(options: RegisterSetting.allCases, selection: model.setup.confirmed.register,
-                             label: { model.copy(registerKey($0)) }) { model.setup.confirm(register: $0) }
-                Text(model.copy(.wordChoiceTitle)).font(.headline)
-                OptionPicker(options: WordChoiceSetting.allCases, selection: model.setup.confirmed.wordChoice,
-                             label: { model.copy(wordKey($0)) }) { model.setup.confirm(wordChoice: $0) }
+                Button {
+                    withAnimation(.snappy) { showsReadingRules.toggle() }
+                } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(model.copy(.readingRulesTitle)).font(.headline)
+                            Text("\(model.copy(registerKey(model.setup.confirmed.register))) · \(model.copy(wordKey(model.setup.confirmed.wordChoice)))")
+                                .font(.subheadline)
+                                .foregroundStyle(Palette.liveMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.down")
+                            .rotationEffect(.degrees(showsReadingRules ? 180 : 0))
+                            .foregroundStyle(Palette.liveMuted)
+                    }
+                    .padding(16)
+                    .frame(minHeight: 44)
+                    .background(Palette.liveSurface, in: RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+                if showsReadingRules {
+                    Text(model.copy(.registerTitle)).font(.subheadline.weight(.semibold))
+                    OptionPicker(options: RegisterSetting.allCases, selection: model.setup.confirmed.register,
+                                 label: { model.copy(registerKey($0)) }) { model.setup.confirm(register: $0) }
+                    Text(model.copy(.wordChoiceTitle)).font(.subheadline.weight(.semibold))
+                    OptionPicker(options: WordChoiceSetting.allCases, selection: model.setup.confirmed.wordChoice,
+                                 label: { model.copy(wordKey($0)) }) { model.setup.confirm(wordChoice: $0) }
+                }
 
                 PrimaryButton(title: model.copy(.startSession), enabled: model.hasProfile) {
                     Task { await model.startSession() }
@@ -621,7 +648,7 @@ struct CueCard: View {
             Divider().overlay(Palette.liveMuted.opacity(0.2))
             row("scope", .cueWhyHere, cue.whyHere)
             Divider().overlay(Palette.liveMuted.opacity(0.2))
-            row("arrow.right", .cueTryNext, "“\(cue.tryNext)”")
+            row("arrow.right", .cueTryNext, "“\(cue.tryNext)”", standsOut: true)
             if let note = cue.note {
                 HStack(alignment: .top, spacing: 14) {
                     Image(systemName: "lightbulb").font(.title3).frame(width: 26).foregroundStyle(Palette.primary)
@@ -652,16 +679,22 @@ struct CueCard: View {
         Text(model.copy(key).uppercased()).font(.caption).tracking(1).foregroundStyle(Palette.liveMuted)
     }
 
-    private func row(_ icon: String, _ title: CopyKey, _ text: String) -> some View {
+    /// One field of the card. At a glance the eye goes from the quote to the next sentence, which
+    /// stands out; the reading and the reason stay, in DESIGN.md order, but quieter.
+    private func row(_ icon: String, _ title: CopyKey, _ text: String, standsOut: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: icon).font(.title3).frame(width: 26)
+                .foregroundStyle(standsOut ? Palette.primary : Palette.liveMuted)
             VStack(alignment: .leading, spacing: 6) {
                 caption(title)
-                Text(text).font(.body)
+                Text(text)
+                    .font(standsOut ? Font.body.weight(.semibold) : Font.subheadline)
+                    .foregroundStyle(standsOut ? Palette.primary : Palette.liveMuted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 14)
+        .padding(.vertical, standsOut ? 14 : 10)
     }
 }
 

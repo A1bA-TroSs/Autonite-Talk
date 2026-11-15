@@ -97,7 +97,7 @@ final class FeasibilityModel {
     /// Re-read the user's pieces with Whisper in Pass 1 sessions; set from the user's setting.
     var whisperEnabled = false
     /// Called with each piece Whisper re-read and Whisper's words, for the current session only.
-    var onSecondListen: ((Utterance, String) -> Void)?
+    var onSecondListen: ((Utterance, SecondReading.Heard) -> Void)?
     /// Pieces waiting for Whisper, including the one being read.
     private(set) var whisperPending = 0
     private struct ReRead: Sendable {
@@ -292,9 +292,9 @@ final class FeasibilityModel {
             pauseTask?.cancel()
             if let hit = earlyHit {
                 earlyHit = nil
-                recordEarly(hit, cued: false, reason: "the line ended first")
+                recordEarly(hit, cued: false, reason: "the line ended first", heardUntil: voice.snapshot().heardUntil)
             }
-            for i in earlyCues.indices where earlyCues[i].lineEnd == nil { earlyCues[i].lineEnd = end }
+            for i in earlyCues.indices where earlyCues[i].lineEnd == nil { earlyCues[i].place(lineEnd: end, words: words) }
             early.lineFinished()
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             if sessionMethod == .voice {
@@ -408,12 +408,12 @@ final class FeasibilityModel {
             // These words are never cued early; the final line decides with word times.
             earlyHit = nil
             early.markCued(hit.text, language: language, settings: settings, closed: hit.closed)
-            recordEarly(hit, cued: false, reason: reason)
+            recordEarly(hit, cued: false, reason: reason, heardUntil: snapshot.heardUntil)
         case .cue:
             guard let check = recentCheck else { return }
             earlyHit = nil
             early.markCued(hit.text, language: language, settings: settings, closed: hit.closed)
-            recordEarly(hit, cued: true, reason: nil)
+            recordEarly(hit, cued: true, reason: nil, heardUntil: snapshot.heardUntil)
             onEarlyCue?(Utterance(
                 start: check.window.lowerBound, end: check.window.upperBound, text: Self.recentPiece(hit.text), latency: 0, meanLevelDB: nil,
                 predicted: .user, predictionConfidence: 1, voiceSlot: check.slot, overlapped: false,
@@ -422,9 +422,11 @@ final class FeasibilityModel {
         }
     }
 
-    private func recordEarly(_ hit: EarlyCueGate.Hit, cued: Bool, reason: String?) {
-        earlyCues.append(EarlyCueRecord(heardAt: hit.firstHeardAt, decidedAt: engine?.capturedSeconds ?? hit.heardAt,
-                                        cued: cued, reason: reason))
+    private func recordEarly(_ hit: EarlyCueGate.Hit, cued: Bool, reason: String?, heardUntil: Double) {
+        let decidedAt = engine?.capturedSeconds ?? hit.heardAt
+        earlyCues.append(EarlyCueRecord(heardAt: hit.firstHeardAt, decidedAt: decidedAt, cued: cued, reason: reason,
+                                        heardLetters: EarlyCueRecord.letters(in: hit.firstText),
+                                        diarizerLag: max(0, decidedAt - heardUntil)))
     }
 
     /// The voice check behind an early cue. The user's slot alone for 1.5 s and the normal
@@ -577,11 +579,11 @@ final class FeasibilityModel {
         let whisper = self.whisper
         reReadTask = Task { [weak self] in
             while let job = self?.nextReRead() {
-                let text = try? await whisper.read(job.samples, language: job.language)
+                let heard = try? await whisper.read(job.samples, language: job.language)
                 guard let self else { return }
-                if let text, job.session == self.session {
-                    self.recordSecondListen(job.utterance.id, text)
-                    self.onSecondListen?(job.utterance, text)
+                if let heard, job.session == self.session {
+                    self.recordSecondListen(job.utterance.id, heard.text)
+                    self.onSecondListen?(job.utterance, heard)
                 }
             }
             self?.reReadTask = nil

@@ -43,6 +43,28 @@ public enum SecondReading {
         return cleaned.contains(where: \.isLetter) ? cleaned : nil
     }
 
+    /// What Whisper heard in one piece, and whether it was sure of it.
+    public struct Heard: Equatable, Sendable {
+        public let text: String
+        /// Every segment it kept cleared Whisper's own confidence bar (`isSure`).
+        public let sure: Bool
+
+        public init(text: String, sure: Bool) {
+            self.text = text
+            self.sure = sure
+        }
+    }
+
+    /// Whisper's own bar for a failed decode (its `logProbThreshold`): a segment whose average
+    /// token log-probability is still under it after the temperature fallbacks is a guess.
+    public static let sureLogProbability = -1.0
+
+    /// Whether Whisper was sure of every segment it kept. Only a sure reading may put a harsh word
+    /// that Apple didn't hear into the recap.
+    public static func isSure(averageLogProbabilities: [Double]) -> Bool {
+        !averageLogProbabilities.isEmpty && averageLogProbabilities.allSatisfy { $0 >= sureLogProbability }
+    }
+
     /// Cyrillic, hiragana and katakana: never part of Korean or English speech here.
     static func isStray(_ scalar: Unicode.Scalar) -> Bool {
         (0x0400...0x04FF).contains(scalar.value) || (0x3040...0x30FF).contains(scalar.value)

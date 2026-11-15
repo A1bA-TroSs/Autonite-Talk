@@ -96,9 +96,9 @@ final class WhisperReader: @unchecked Sendable {
         }
     }
 
-    /// Whisper's words for 16 kHz mono audio, cleaned (`SecondReading.clean`), or nil when it heard
-    /// nothing worth showing. The audio stays in memory.
-    func read(_ samples: [Float], language: SpeechLanguage) async throws -> String? {
+    /// Whisper's words for 16 kHz mono audio, cleaned (`SecondReading.clean`), and whether it was
+    /// sure of them; nil when it heard nothing worth showing. The audio stays in memory.
+    func read(_ samples: [Float], language: SpeechLanguage) async throws -> SecondReading.Heard? {
         guard let kit = lock.withLock({ self.kit }) else { return nil }
         let options = DecodingOptions(
             verbose: false, task: .transcribe, language: language == .korean ? "ko" : "en",
@@ -111,12 +111,14 @@ final class WhisperReader: @unchecked Sendable {
             concurrentWorkerCount: 1
         )
         let results = try await kit.transcribe(audioArray: samples, decodeOptions: options)
-        let pieces = results.flatMap(\.segments).compactMap { segment in
+        let kept = results.flatMap(\.segments).compactMap { segment -> (text: String, logProbability: Double)? in
             SecondReading.clean(segment.text, noSpeechProbability: Double(segment.noSpeechProb),
                                 averageLogProbability: Double(segment.avgLogprob), compressionRatio: Double(segment.compressionRatio))
+                .map { (text: $0, logProbability: Double(segment.avgLogprob)) }
         }
-        let text = pieces.joined(separator: " ")
-        return text.isEmpty ? nil : text
+        guard !kept.isEmpty else { return nil }
+        return SecondReading.Heard(text: kept.map(\.text).joined(separator: " "),
+                                   sure: SecondReading.isSure(averageLogProbabilities: kept.map(\.logProbability)))
     }
 
     /// The CI Simulator self-test (rubric M9): a reader with `variant` downloaded into a temporary

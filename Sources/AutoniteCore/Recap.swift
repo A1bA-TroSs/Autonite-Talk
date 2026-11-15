@@ -92,8 +92,10 @@ public struct SessionRecap: Equatable, Sendable {
     /// Applies Whisper's second listen of the piece from `start` to `end`. The flagged moment of
     /// that piece takes Whisper's words: found by `piece` when given, otherwise by overlap.
     /// Elsewhere, harsh words only Whisper heard become an uncued moment so the user can see what
-    /// it caught; they never cue.
-    public mutating func applySecondListen(start: Double, end: Double, apple: String, whisper: String, piece: UUID? = nil, words: PersonalWords = PersonalWords()) {
+    /// it caught, but only when Whisper was `sure` of the piece (`SecondReading.isSure`); they
+    /// never cue.
+    public mutating func applySecondListen(start: Double, end: Double, apple: String, whisper: String, sure: Bool = true,
+                                           piece: UUID? = nil, words: PersonalWords = PersonalWords()) {
         let comparison = SecondReading.compare(apple: apple, whisper: whisper, words: words)
         let match = if let piece { moments.firstIndex { $0.pieces.contains(piece) } } else { index(overlapping: start, end) }
         if let i = match {
@@ -101,7 +103,7 @@ public struct SessionRecap: Equatable, Sendable {
             moments[i].onlyWhisper = comparison.onlyWhisper
             return
         }
-        guard !comparison.onlyWhisper.isEmpty else { return }
+        guard sure, !comparison.onlyWhisper.isEmpty else { return }
         insert(Moment(id: UUID(), kind: .whisperOnly, start: start, end: end, apple: apple, whisper: whisper, categories: [],
                       onlyWhisper: comparison.onlyWhisper, verdict: nil, pieces: piece.map { [$0] } ?? []))
     }

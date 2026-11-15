@@ -113,6 +113,8 @@ public enum EarlyCueGate {
     /// latest of them showed up.
     public struct Hit: Equatable, Sendable {
         public private(set) var text: String
+        /// The in-progress text when the first mismatch showed up.
+        public let firstText: String
         public private(set) var closed: Bool
         /// `EarlyReader.hits` in `text`.
         public private(set) var hits: Int
@@ -123,6 +125,7 @@ public enum EarlyCueGate {
 
         public init(text: String, closed: Bool, hits: Int, heardAt: Double, since: Double) {
             self.text = text
+            firstText = text
             self.closed = closed
             self.hits = hits
             firstHeardAt = heardAt

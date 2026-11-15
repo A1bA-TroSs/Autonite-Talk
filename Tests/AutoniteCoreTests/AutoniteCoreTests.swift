@@ -1087,6 +1087,77 @@ private func hit(heardAt: Double, since: Double = 100) -> EarlyCueGate.Hit {
     #expect(older.earlyCues == nil && older.earlyCueSummary.cued == 0)
 }
 
+@Test func aWaitingHitKeepsTheTextItFirstShowedUpIn() {
+    var waiting = hit(heardAt: 3.9)
+    waiting.update(text: "아 존나 피곤해서 씨발", closed: false, hits: 2, heardAt: 5.2)
+    #expect(waiting.firstText == "아 존나" && waiting.text == "아 존나 피곤해서 씨발")
+}
+
+@Test func anEarlyCuePlacedInItsLineGivesWordToTextAndWordToCue() throws {
+    // In the final line, 존나 ended at 3.1 s; the in-progress text "아, 진짜 존나" showed up at 3.9 s.
+    let words = [WordSpan(text: "아,", start: 2.0, end: 2.2), WordSpan(text: " 진짜", start: 2.3, end: 2.7),
+                 WordSpan(text: " 존나", start: 2.8, end: 3.1), WordSpan(text: " 피곤해요.", start: 3.2, end: 4.0)]
+    #expect(EarlyCueRecord.letters(in: "아, 진짜 존나") == 5)
+    #expect(EarlyCueRecord.saidAt(letters: 5, in: words) == 3.1)
+    // In-progress text longer than the line can't be placed in it.
+    #expect(EarlyCueRecord.saidAt(letters: 20, in: words) == nil)
+    #expect(EarlyCueRecord.saidAt(letters: 0, in: words) == nil)
+
+    var cued = EarlyCueRecord(heardAt: 3.9, decidedAt: 4.3, cued: true, reason: nil, heardLetters: 5)
+    var dropped = EarlyCueRecord(heardAt: 3.7, decidedAt: 5.2, cued: false, reason: "no clean, fresh voice check in time", heardLetters: 3)
+    cued.place(lineEnd: 4.0, words: words)
+    dropped.place(lineEnd: 4.0, words: words)
+    #expect(cued.lineEnd == 4.0 && cued.saidAt == 3.1)
+    #expect(abs((cued.textLag ?? 0) - 0.8) < 1e-9)
+    #expect(abs((cued.wordToCue ?? 0) - 1.2) < 1e-9)
+    // A dropped cue still shows how slow the text was, but it has no word-to-cue time.
+    #expect(dropped.saidAt == 2.7 && dropped.wordToCue == nil)
+    #expect(abs((dropped.textLag ?? 0) - 1.0) < 1e-9)
+    let summary = EarlyCueSummary(records: [cued, dropped])
+    #expect(abs((summary.medianTextLag ?? 0) - 0.9) < 1e-9)
+    #expect(abs((summary.medianWordToCue ?? 0) - 1.2) < 1e-9)
+
+    // The new fields travel in the report; a record from before them still reads.
+    let data = try JSONEncoder().encode([cued, dropped])
+    #expect(try JSONDecoder().decode([EarlyCueRecord].self, from: data) == [cued, dropped])
+    let older = try JSONDecoder().decode([EarlyCueRecord].self, from: Data(#"[{"heardAt":3.9,"decidedAt":4.3,"cued":true,"lineEnd":6}]"#.utf8))
+    #expect(older[0].heardLetters == nil && older[0].saidAt == nil && older[0].textLag == nil && older[0].lead != nil)
+}
+
+@Test func aWordOnlyWhisperHeardReachesTheRecapOnlyWhenWhisperWasSure() {
+    // Whisper's own bar: every kept segment at an average log-probability of -1.0 or better.
+    #expect(SecondReading.isSure(averageLogProbabilities: [-0.3, -0.8, -1.0]))
+    #expect(!SecondReading.isSure(averageLogProbabilities: [-0.3, -1.2]))
+    #expect(!SecondReading.isSure(averageLogProbabilities: []))
+
+    var recap = SessionRecap()
+    recap.recordCue(start: 2, end: 4, text: "아 그거 진짜 별로야", categories: [.wordChoice])
+    // An unsure read still corrects the words of a moment that was cued...
+    recap.applySecondListen(start: 2, end: 4, apple: "아 그거 진짜 별로야", whisper: "아, 그거 진짜 별로잖아.", sure: false)
+    #expect(recap.moments.count == 1 && recap.moments[0].whisper == "아, 그거 진짜 별로잖아.")
+    // ...but a harsh word only it heard, elsewhere, stays out of the recap.
+    recap.applySecondListen(start: 20, end: 22, apple: "아 그건 좀 한 심하다", whisper: "아, 그건 좀 한심하다.", sure: false)
+    #expect(recap.moments.count == 1)
+    // A sure read lists it, unconfirmed and uncounted.
+    recap.applySecondListen(start: 30, end: 32, apple: "아 그건 좀 한 심하다", whisper: "아, 그건 좀 한심하다.", sure: true)
+    #expect(recap.moments.count == 2 && recap.moments[1].kind == .whisperOnly && recap.cueCount == 1)
+}
+
+@Test func earlyCueRecordsShowHowFarTheDiarizerLaggedAndWhyCuesWereDropped() throws {
+    let records = [
+        EarlyCueRecord(heardAt: 3.9, decidedAt: 4.3, cued: true, reason: nil, diarizerLag: 0.9),
+        EarlyCueRecord(heardAt: 8.0, decidedAt: 9.6, cued: false, reason: "no clean, fresh voice check in time", diarizerLag: 2.4),
+        EarlyCueRecord(heardAt: 12.0, decidedAt: 12.1, cued: false, reason: "another voice spoke while the words were said", diarizerLag: 1.1),
+        EarlyCueRecord(heardAt: 15.0, decidedAt: 16.6, cued: false, reason: "no clean, fresh voice check in time", diarizerLag: 2.0),
+    ]
+    let summary = EarlyCueSummary(records: records)
+    #expect(abs((summary.medianDiarizerLag ?? 0) - 1.55) < 1e-9)
+    #expect(summary.sortedDropReasons.map(\.reason) == ["no clean, fresh voice check in time", "another voice spoke while the words were said"])
+    #expect(summary.sortedDropReasons.map(\.count) == [2, 1])
+    let decoded = try JSONDecoder().decode([EarlyCueRecord].self, from: JSONEncoder().encode(records))
+    #expect(EarlyCueSummary(records: decoded) == summary)
+}
+
 // MARK: Holdout risk: a word only Whisper heard is its own kind of moment
 
 @Test func aWordOnlyWhisperHeardIsItsOwnKindAndCountsNowhere() {

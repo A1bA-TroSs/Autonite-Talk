@@ -109,7 +109,7 @@ final class Pass1Model {
         lab.whisperEnabled = whisperEnabled
         lab.onVoiceUtterance = { [weak self] utterance in self?.receive(utterance) }
         lab.onEarlyCue = { [weak self] utterance in self?.receiveEarly(utterance) }
-        lab.onSecondListen = { [weak self] utterance, text in self?.receiveSecondListen(utterance, text) }
+        lab.onSecondListen = { [weak self] utterance, heard in self?.receiveSecondListen(utterance, heard) }
         // A model already on the phone loads at launch. A download only ever starts from Settings.
         if whisperEnabled, WhisperReader.downloadedFolder(whisperModel) != nil {
             let model = whisperModel
@@ -355,11 +355,12 @@ final class Pass1Model {
     }
 
     /// Whisper re-read one of the user's pieces. It corrects the words on the card and in the
-    /// recap; it never gives a cue (`SecondReading`).
-    private func receiveSecondListen(_ utterance: Utterance, _ text: String) {
-        recap.applySecondListen(start: utterance.start, end: utterance.end, apple: utterance.text, whisper: text,
-                                piece: utterance.id, words: words)
-        if utterance.id == cuePiece { screen.applySecondListen(text, language: language) }
+    /// recap; it never gives a cue (`SecondReading`), and a harsh word only it heard reaches the
+    /// recap only when it was sure of the piece.
+    private func receiveSecondListen(_ utterance: Utterance, _ heard: SecondReading.Heard) {
+        recap.applySecondListen(start: utterance.start, end: utterance.end, apple: utterance.text, whisper: heard.text,
+                                sure: heard.sure, piece: utterance.id, words: words)
+        if utterance.id == cuePiece { screen.applySecondListen(heard.text, language: language) }
     }
 
     /// Every hit slams the needle and counts on the card; the buzz waits out `CuePacer.minimumGap`.
