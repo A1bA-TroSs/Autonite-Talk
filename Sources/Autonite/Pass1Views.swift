@@ -392,7 +392,8 @@ struct LiveView: View {
                 // The single recording indicator (DESIGN.md).
                 LiveRecordingStrip(model: model)
                 MeterView(needle: model.screen.needle, label: centerLabel, detail: centerDetail, cue: isCue,
-                          level: model.showsRecording ? min(max((model.lab.levelDB + 55) / 35, 0), 1) : 0)
+                          level: model.showsRecording ? min(max((model.lab.levelDB + 55) / 35, 0), 1) : 0,
+                          showsText: !isCueOpen)
                     .aspectRatio(1, contentMode: .fit)
                     .frame(maxWidth: 380, maxHeight: .infinity)
                     .layoutPriority(1)
@@ -435,6 +436,11 @@ struct LiveView: View {
         case .cueWaiting, .cueOpen: true
         default: false
         }
+    }
+
+    private var isCueOpen: Bool {
+        if case .cueOpen = model.screen.phase { return true }
+        return false
     }
 
     private var centerLabel: String {
@@ -707,6 +713,9 @@ struct MeterView: View {
     var cue = false
     /// Voice level 0...1 while listening; the needle twitches with it.
     var level = 0.0
+    /// False while the cue card covers the lower half of the meter, so its words aren't cut off
+    /// at the card's edge. The accessibility label stays.
+    var showsText = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -759,6 +768,7 @@ struct MeterView: View {
                 .minimumScaleFactor(0.8)
                 .frame(width: size * 0.46)
                 .position(x: center.x, y: center.y + size * 0.15)
+                .opacity(showsText ? 1 : 0)
             }
         }
         .accessibilityElement(children: .ignore)
