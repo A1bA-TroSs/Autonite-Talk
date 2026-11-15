@@ -19,7 +19,7 @@ concurrency:
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -60,20 +60,41 @@ jobs:
           SIMCTL_CHILD_AUTONITE_SELFTEST=1 perl -e 'alarm 120; exec @ARGV' xcrun simctl launch --console "$udid" "$bundle_id" | tee selftest.log || true
           grep -qx "autonite selftest succeeded" selftest.log
 
+      # Rubric M9: Whisper tiny downloads into a temporary folder and reads speech made with `say`.
+      # The clips are synthesized here and copied into the app's tmp folder; no microphone audio.
+      - name: Whisper self-test
+        run: |
+          udid=$(xcrun simctl list devices booted -j | python3 -c 'import json,sys; print([d["udid"] for v in json.load(sys.stdin)["devices"].values() for d in v][0])')
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
+          clips="$(xcrun simctl get_app_container "$udid" "$bundle_id" data)/tmp/selftest-clips"
+          mkdir -p "$clips"
+          say -o "$RUNNER_TEMP/en.aiff" "I will send you the report tomorrow morning."
+          afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/en.aiff" "$clips/en.wav"
+          korean_voice=$(say -v '?' | awk '/ko_KR/ {print $1; exit}')
+          if [ -n "$korean_voice" ]; then
+            say -v "$korean_voice" -o "$RUNNER_TEMP/ko.aiff" "내일 아침에 보고서를 보내 드릴게요."
+            afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/ko.aiff" "$clips/ko.wav"
+          else
+            echo "No Korean voice on this runner; the Korean read is skipped."
+          fi
+          xcrun simctl terminate "$udid" "$bundle_id" || true
+          SIMCTL_CHILD_AUTONITE_SELFTEST=whisper perl -e 'alarm 420; exec @ARGV' xcrun simctl launch --console "$udid" "$bundle_id" | tee whisper-selftest.log || true
+          grep -qx "autonite whisper selftest succeeded" whisper-selftest.log
+
       - name: Screenshots for design review
         run: |
           udid=$(xcrun simctl list devices booted -j | python3 -c 'import json,sys; print([d["udid"] for v in json.load(sys.stdin)["devices"].values() for d in v][0])')
           bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
           xcrun simctl ui "$udid" appearance dark || true
           mkdir -p screens
-          for screen in setup live cue; do
+          for screen in setup live cue learner practice settings recap; do
             xcrun simctl terminate "$udid" "$bundle_id" || true
             SIMCTL_CHILD_AUTONITE_SCREEN=$screen xcrun simctl launch "$udid" "$bundle_id"
             sleep 6
             xcrun simctl io "$udid" screenshot "screens/$screen.png"
           done
           # Also print small JPEGs into the log, for reviewers who can read logs but not artifacts.
-          for screen in setup live cue; do
+          for screen in setup live cue learner practice settings recap; do
             sips -s format jpeg -s formatOptions 70 -Z 1000 "screens/$screen.png" --out "$RUNNER_TEMP/$screen.jpg" >/dev/null
             echo "SCREEN-BEGIN $screen"
             base64 -i "$RUNNER_TEMP/$screen.jpg" | fold -w 4000

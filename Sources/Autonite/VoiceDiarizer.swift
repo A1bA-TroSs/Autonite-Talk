@@ -139,6 +139,18 @@ final class VoiceDiarizer: @unchecked Sendable {
         lock.withLock { printOf(start: start, end: end).flatMap { VoiceVerifier.bestMatch($0, against: enrolledPrints + sessionPrints) } }
     }
 
+    /// A copy of the held 16 kHz audio from `start` to `end`, for Whisper's second listen, or nil
+    /// when none of that stretch is held any more. Memory only; nothing is written to disk.
+    func audio(start: Double, end: Double) -> [Float]? {
+        lock.withLock {
+            let recentStart = recentEnd - Double(recent.count) / Self.printRate
+            let from = max(0, Int(((start - recentStart) * Self.printRate).rounded()))
+            let to = min(recent.count, Int(((end - recentStart) * Self.printRate).rounded()))
+            guard to > from else { return nil }
+            return Array(recent[from..<to])
+        }
+    }
+
     /// Adds clearly verified speech of the user's to this session's prints.
     func adapt(start: Double, end: Double) {
         lock.withLock {

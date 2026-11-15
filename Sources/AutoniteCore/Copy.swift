@@ -41,7 +41,7 @@ public enum CopyKey: String, CaseIterable, Sendable {
     case recapOpen, recapTitle, recapPracticeTitle, recapGoal, recapEmpty, recapCues, recapRegister, recapWords
     case recapChecking, recapWhisperHeard, recapOnlyWhisper, recapDisagree, recapAccurate, recapInaccurate
     case recapMute, recapMuted, recapNewSession, recapKeptNote, recapLength, recapNotCued
-    case settingsTitle, appLanguage, appLanguageNote
+    case settingsTitle, appLanguage, appLanguageNote, appLanguageFollow
     case whisperTitle, whisperBody, whisperUse, whisperStandard, whisperAccurate, whisperDownload, whisperDownloading
     case whisperPreparing, whisperReady, whisperFailed, whisperDelete, whisperNetwork
     case myWordsTitle, myWordsBody, myWordsPlaceholder, myWordsAdd, myWordsAdded, myWordsMuted, myWordsNone
@@ -191,6 +191,7 @@ public enum Copy {
         .settingsTitle: "Settings",
         .appLanguage: "App language",
         .appLanguageNote: "Set apart from the speech language. Learning Korean? Keep the app in English and speak Korean.",
+        .appLanguageFollow: "Same as speech",
         .whisperTitle: "Second listen with Whisper",
         .whisperBody: "Whisper listens again, on this iPhone, to speech already confirmed as yours, and corrects the words on the cue card and the recap. It never gives a cue on its own.",
         .whisperUse: "Use Whisper",
@@ -354,6 +355,7 @@ public enum Copy {
         .settingsTitle: "설정",
         .appLanguage: "앱 언어",
         .appLanguageNote: "말할 언어와 따로 정할 수 있어요. 한국어를 배우는 중이라면 앱은 영어로, 말은 한국어로 해 보세요.",
+        .appLanguageFollow: "말할 언어와 같게",
         .whisperTitle: "Whisper로 한 번 더 듣기",
         .whisperBody: "내 목소리로 확인된 말을 이 아이폰 안에서 Whisper가 다시 듣고, 신호 카드와 돌아보기의 문장을 바로잡아요. 스스로 신호를 보내지는 않아요.",
         .whisperUse: "Whisper 사용",

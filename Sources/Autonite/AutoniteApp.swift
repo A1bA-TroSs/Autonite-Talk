@@ -19,6 +19,7 @@ struct AutoniteApp: App {
             .task {
                 if let screen = ProcessInfo.processInfo.environment["AUTONITE_SCREEN"] { pass1.showFixture(screen) }
                 if SelfTest.isRequested { await SelfTest.run(lab) }
+                if SelfTest.isWhisperRequested { await SelfTest.runWhisper() }
             }
         }
     }

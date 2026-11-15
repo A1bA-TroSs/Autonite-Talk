@@ -79,6 +79,36 @@ final class FeasibilityModel {
     private var failures: [String] = []
     private let haptics = HapticProbe()
 
+    // Whisper's second listen (loop autunite-reach). Apple stays the live path; Whisper re-reads
+    // pieces the gate gave to the user, off the main actor, and never decides a cue.
+    enum WhisperStatus: Equatable {
+        case off
+        case downloading(Double)
+        case preparing
+        case ready
+        case failed(String)
+    }
+    let whisper = WhisperReader()
+    var whisperStatus: WhisperStatus = .off
+    /// Re-read the user's pieces with Whisper in Pass 1 sessions; set from the user's setting.
+    var whisperEnabled = false
+    /// Called with each piece Whisper re-read and Whisper's words, for the current session only.
+    var onSecondListen: ((Utterance, String) -> Void)?
+    /// Pieces waiting for Whisper, including the one being read.
+    private(set) var whisperPending = 0
+    private struct ReRead: Sendable {
+        let session: UUID
+        let utterance: Utterance
+        let samples: [Float]
+        let language: SpeechLanguage
+    }
+    private var reReads = ReReadQueue<ReRead>(capacity: 8)
+    @ObservationIgnored private var reReadTask: Task<Void, Never>?
+    private var session = UUID()
+    /// The settings of the running Pass 1 session, kept through `stop()` so its last pieces are
+    /// still re-read after the early path is switched off.
+    private var secondListenSettings: CategorySettings?
+
     init() {
         report = FeasibilityReport(
             deviceModel: Self.deviceModel(),
@@ -113,6 +143,12 @@ final class FeasibilityModel {
         utterances = []
         volatileText = ""
         early = EarlyReader()
+        // A new session: pieces still waiting from the last one are dropped, and a late result of
+        // the last one is ignored.
+        session = UUID()
+        reReads.removeAll()
+        updateWhisperPending()
+        secondListenSettings = earlySettings
         interruptions = 0
         failures = []
         pending = []
@@ -177,6 +213,8 @@ final class FeasibilityModel {
             try await engine.start(language: language)
             startedAt = Date()
             state = .recording
+            // The phone sits screen-up through the conversation; it must not lock and stop the capture.
+            UIApplication.shared.isIdleTimerDisabled = true
         } catch {
             lastError = error.localizedDescription
             failures.append(error.localizedDescription)
@@ -224,6 +262,7 @@ final class FeasibilityModel {
         }
         volatileText = ""
         state = .idle
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     private func handle(_ event: EngineEvent) {
@@ -406,9 +445,110 @@ final class FeasibilityModel {
                     voiceSlot: piece.slot, overlapped: piece.overlapped, attributionDelay: delay,
                     voiceMatch: match
                 ))
-                if let latest = utterances.last { onVoiceUtterance?(latest) }
+                if let latest = utterances.last {
+                    onVoiceUtterance?(latest)
+                    queueSecondListen(latest)
+                }
             }
         }
+    }
+
+    // MARK: Whisper second listen
+
+    /// Downloads (only when it isn't on the phone yet) and loads a Whisper model.
+    func prepareWhisper(_ model: WhisperReader.Model) async {
+        switch whisperStatus {
+        case .downloading, .preparing: return
+        default: break
+        }
+        if whisper.loaded == model {
+            whisperStatus = .ready
+            return
+        }
+        whisperStatus = .downloading(0)
+        // Loading replaces the model in use, so a read in progress finishes first.
+        endSecondListen()
+        await reReadTask?.value
+        do {
+            try await whisper.load(model, progress: { fraction in
+                Task { @MainActor in self.showDownload(fraction) }
+            }, preparing: {
+                Task { @MainActor in self.showPreparing() }
+            })
+            whisperStatus = .ready
+        } catch {
+            whisperStatus = .failed(error.localizedDescription)
+        }
+    }
+
+    private func showDownload(_ fraction: Double) {
+        if case .downloading = whisperStatus { whisperStatus = .downloading(fraction) }
+    }
+
+    private func showPreparing() {
+        if case .downloading = whisperStatus { whisperStatus = .preparing }
+    }
+
+    /// Stops using Whisper and frees its memory; the model stays on the phone.
+    func unloadWhisper() async {
+        endSecondListen()
+        await reReadTask?.value
+        await whisper.unload()
+        whisperStatus = .off
+    }
+
+    /// Stops using Whisper and deletes its models from the phone.
+    func deleteWhisper() async {
+        endSecondListen()
+        await reReadTask?.value
+        do {
+            try await whisper.deleteModels()
+            whisperStatus = .off
+        } catch {
+            whisperStatus = .failed(error.localizedDescription)
+        }
+    }
+
+    /// Drops the pieces still waiting, and ignores a read in progress, when the user moves on from
+    /// the last session's recap.
+    func endSecondListen() {
+        session = UUID()
+        reReads.removeAll()
+        updateWhisperPending()
+    }
+
+    /// Queues a piece for Whisper when it is the user's verified speech (`SecondReading.admits`),
+    /// with a copy of its audio. Reads run one at a time off the main actor; the cue path never
+    /// waits for them.
+    private func queueSecondListen(_ utterance: Utterance) {
+        guard whisperEnabled, let settings = secondListenSettings, whisper.loaded != nil, SecondReading.admits(utterance),
+              let samples = voice.audio(start: utterance.start - SecondReading.padding, end: utterance.end + SecondReading.padding)
+        else { return }
+        var cued = false
+        if case .read(_, true) = ReadingPipeline.evaluate(utterance, language: language, settings: settings) { cued = true }
+        reReads.push(ReRead(session: session, utterance: utterance, samples: samples, language: language), cued: cued)
+        updateWhisperPending()
+        guard reReadTask == nil else { return }
+        let whisper = self.whisper
+        reReadTask = Task { [weak self] in
+            while let job = self?.nextReRead() {
+                let text = try? await whisper.read(job.samples, language: job.language)
+                guard let self else { return }
+                if let text, job.session == self.session { self.onSecondListen?(job.utterance, text) }
+            }
+            self?.reReadTask = nil
+            self?.updateWhisperPending()
+        }
+    }
+
+    private func nextReRead() -> ReRead? {
+        let job = reReads.pop()
+        whisperPending = reReads.count + (job == nil ? 0 : 1)
+        return job
+    }
+
+    private func updateWhisperPending() {
+        whisperPending = reReads.count + (reReadTask == nil ? 0 : 1)
     }
 
     // MARK: Pass 1 voice profile

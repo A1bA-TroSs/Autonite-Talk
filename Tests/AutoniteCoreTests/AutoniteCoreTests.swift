@@ -740,10 +740,8 @@ private final class FakeEnroller: SpeakerEnrolling {
 
 @Test func buzzesAreSpacedAndCloseHitsShareOneCard() {
     var pacer = CuePacer()
-    #expect(pacer.allowBuzz(at: 10))
-    #expect(!pacer.allowBuzz(at: 11.5))
-    #expect(!pacer.allowBuzz(at: 12.9))
-    #expect(pacer.allowBuzz(at: 13.1))
+    let allowed = [10, 11.5, 12.9, 13.1].map { pacer.allowBuzz(at: $0) }
+    #expect(allowed == [true, false, false, true])
     var screen = LiveScreen()
     screen.start()
     let first = Utterance(start: 0, end: 2, text: "아 씨발 진짜", latency: 0, meanLevelDB: nil,
@@ -798,8 +796,27 @@ private final class FakeEnroller: SpeakerEnrolling {
     // Full: the oldest piece without a cue goes.
     queue.push(4, cued: false)
     #expect(queue.count == 3)
-    #expect(queue.pop() == 2)
-    #expect(queue.pop() == 3)
-    #expect(queue.pop() == 4)
-    #expect(queue.pop() == nil)
+    let order = (0..<4).map { _ in queue.pop() }
+    #expect(order == [2, 3, 4, nil])
+}
+
+@Test func secondListenReachesItsOwnMomentNotANeighbours() {
+    var recap = SessionRecap()
+    let piece = UUID()
+    // The early cue's window reaches back into the previous piece; the final line joins it.
+    recap.recordCue(start: 9, end: 12, text: "아 씨발", categories: [.wordChoice])
+    recap.recordCue(start: 10, end: 14, text: "아 씨발 진짜", categories: [.wordChoice], piece: piece)
+    #expect(recap.moments.count == 1)
+    #expect(recap.moments[0].pieces == [piece])
+    // Whisper reads the cued piece first, then the earlier piece that overlaps the early window.
+    recap.applySecondListen(start: 10, end: 14, apple: "아 씨발 진짜", whisper: "아, 씨발 진짜.", piece: piece)
+    recap.applySecondListen(start: 7, end: 10, apple: "그래서 말인데", whisper: "그래서 말인데요", piece: UUID())
+    #expect(recap.moments.count == 1)
+    #expect(recap.moments[0].whisper == "아, 씨발 진짜.")
+    // A neighbour where only Whisper heard a harsh word gets its own uncued moment.
+    recap.applySecondListen(start: 14, end: 16, apple: "아 진짜 한 심하다", whisper: "아 진짜 한심하다", piece: UUID())
+    #expect(recap.moments.count == 2)
+    #expect(recap.moments[1].cued == false)
+    #expect(recap.moments[1].onlyWhisper == ["한심"])
+    #expect(recap.cueCount == 1)
 }

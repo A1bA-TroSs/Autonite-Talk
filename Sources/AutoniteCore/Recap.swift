@@ -24,6 +24,9 @@ public struct SessionRecap: Equatable, Sendable {
         public internal(set) var cued: Bool
         public internal(set) var onlyWhisper: [String]
         public internal(set) var verdict: Verdict?
+        /// The attributed pieces (utterance ids) this moment was recorded from, so Whisper's
+        /// re-read of a piece reaches its own moment and not a neighbour's.
+        public internal(set) var pieces: [UUID] = []
 
         /// The words to quote: Whisper's when its second listen is done, else Apple's.
         public var quote: String { whisper ?? apple }
@@ -46,8 +49,6 @@ public struct SessionRecap: Equatable, Sendable {
     public var practice: PracticeScenario?
     /// Length of the session in seconds.
     public var duration: Double = 0
-    /// Pieces still waiting for Whisper, so the recap can say it is still checking.
-    public var pendingChecks = 0
 
     public init(practice: PracticeScenario? = nil) {
         self.practice = practice
@@ -58,8 +59,9 @@ public struct SessionRecap: Equatable, Sendable {
 
     /// Records a flagged moment. One that overlaps an earlier moment updates it: the final line's
     /// words replace the in-progress piece and the categories are joined.
+    /// `piece` is the attributed piece the cue came from, when it came from a final line.
     @discardableResult
-    public mutating func recordCue(start: Double, end: Double, text: String, categories: [ReadingCategory]) -> UUID {
+    public mutating func recordCue(start: Double, end: Double, text: String, categories: [ReadingCategory], piece: UUID? = nil) -> UUID {
         if let i = index(overlapping: start, end) {
             moments[i].start = min(moments[i].start, start)
             moments[i].end = max(moments[i].end, end)
@@ -67,27 +69,30 @@ public struct SessionRecap: Equatable, Sendable {
             moments[i].cued = true
             let joined = moments[i].categories
             moments[i].categories = ReadingCategory.allCases.filter { joined.contains($0) || categories.contains($0) }
+            if let piece, !moments[i].pieces.contains(piece) { moments[i].pieces.append(piece) }
             return moments[i].id
         }
         let moment = Moment(id: UUID(), start: start, end: end, apple: text, whisper: nil, categories: categories,
-                            cued: true, onlyWhisper: [], verdict: nil)
+                            cued: true, onlyWhisper: [], verdict: nil, pieces: piece.map { [$0] } ?? [])
         insert(moment)
         return moment.id
     }
 
-    /// Applies Whisper's second listen of the piece from `start` to `end`. A flagged moment there
-    /// takes Whisper's words. Elsewhere, harsh words only Whisper heard become an uncued moment so
-    /// the user can see what it caught; they never cue.
-    public mutating func applySecondListen(start: Double, end: Double, apple: String, whisper: String, words: PersonalWords = PersonalWords()) {
+    /// Applies Whisper's second listen of the piece from `start` to `end`. The flagged moment of
+    /// that piece takes Whisper's words: found by `piece` when given, otherwise by overlap.
+    /// Elsewhere, harsh words only Whisper heard become an uncued moment so the user can see what
+    /// it caught; they never cue.
+    public mutating func applySecondListen(start: Double, end: Double, apple: String, whisper: String, piece: UUID? = nil, words: PersonalWords = PersonalWords()) {
         let comparison = SecondReading.compare(apple: apple, whisper: whisper, words: words)
-        if let i = index(overlapping: start, end) {
+        let match = if let piece { moments.firstIndex { $0.pieces.contains(piece) } } else { index(overlapping: start, end) }
+        if let i = match {
             moments[i].whisper = whisper
             moments[i].onlyWhisper = comparison.onlyWhisper
             return
         }
         guard !comparison.onlyWhisper.isEmpty else { return }
         insert(Moment(id: UUID(), start: start, end: end, apple: apple, whisper: whisper, categories: [.wordChoice],
-                      cued: false, onlyWhisper: comparison.onlyWhisper, verdict: nil))
+                      cued: false, onlyWhisper: comparison.onlyWhisper, verdict: nil, pieces: piece.map { [$0] } ?? []))
     }
 
     public mutating func mark(_ id: UUID, _ verdict: Verdict) {

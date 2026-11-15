@@ -96,6 +96,12 @@ public struct LiveScreen: Equatable, Sendable {
         public let phrase: String
         public let categories: [ReadingCategory]
         public let markedAt: Date
+
+        public init(phrase: String, categories: [ReadingCategory], markedAt: Date = Date()) {
+            self.phrase = phrase
+            self.categories = categories
+            self.markedAt = markedAt
+        }
     }
 
     public private(set) var phase: Phase = .idle

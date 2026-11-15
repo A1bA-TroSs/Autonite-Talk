@@ -13,6 +13,13 @@ enum SelfTest {
         ProcessInfo.processInfo.environment["AUTONITE_SELFTEST"] == "1"
     }
 
+    /// `AUTONITE_SELFTEST=whisper`: the Whisper check (rubric M9), run in CI after the main one.
+    static var isWhisperRequested: Bool {
+        ProcessInfo.processInfo.environment["AUTONITE_SELFTEST"] == "whisper"
+    }
+
+    static let whisperSentinel = "autonite whisper selftest succeeded"
+
     @MainActor
     static func run(_ model: FeasibilityModel) async {
         var failures: [String] = []
@@ -76,6 +83,55 @@ enum SelfTest {
             exit(0)
         }
         failures.forEach { log("selftest FAIL: \($0)") }
+        exit(1)
+    }
+
+    /// Loads Whisper tiny (downloaded into a temporary folder) and reads speech that CI made with
+    /// `say` and copied into the app's tmp folder: `selftest-clips/en.wav`, and `ko.wav` when the
+    /// runner has a Korean voice. It logs each read's words and time. The clips are synthesized
+    /// speech, never microphone audio.
+    @MainActor
+    static func runWhisper() async {
+        log("whisper selftest started")
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("selftest-clips", isDirectory: true)
+        var clips: [(path: String, language: SpeechLanguage)] = []
+        for (name, language) in [("en.wav", SpeechLanguage.english), ("ko.wav", .korean)] {
+            let path = folder.appendingPathComponent(name).path
+            if FileManager.default.fileExists(atPath: path) { clips.append((path, language)) }
+        }
+        guard clips.contains(where: { $0.language == .english }) else {
+            log("whisper selftest FAIL: no English clip in \(folder.path)")
+            exit(1)
+        }
+        if !clips.contains(where: { $0.language == .korean }) {
+            log("whisper selftest: no Korean clip (no Korean voice on this runner)")
+        }
+        var failures: [String] = []
+        do {
+            let started = Date()
+            let results = try await WhisperReader.selfTest(clips: clips, variant: "openai_whisper-tiny")
+            log("whisper selftest: download, load and reads took \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
+            for (result, clip) in zip(results, clips) {
+                let text = result.text ?? ""
+                log("whisper selftest \(clip.language.rawValue): \(String(format: "%.2f", result.seconds)) s: \(text.isEmpty ? "(nothing)" : text)")
+                switch clip.language {
+                case .english:
+                    if !text.lowercased().contains("tomorrow") { failures.append("the English clip did not read as 'tomorrow'") }
+                case .korean:
+                    if !text.unicodeScalars.contains(where: { (0xAC00...0xD7A3).contains($0.value) }) {
+                        failures.append("the Korean clip read without Hangul")
+                    }
+                }
+            }
+            if results.count != clips.count { failures.append("\(results.count) reads for \(clips.count) clips") }
+        } catch {
+            failures.append("Whisper failed: \(error.localizedDescription)")
+        }
+        if failures.isEmpty {
+            log(whisperSentinel)
+            exit(0)
+        }
+        failures.forEach { log("whisper selftest FAIL: \($0)") }
         exit(1)
     }
 
