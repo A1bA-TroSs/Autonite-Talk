@@ -68,7 +68,11 @@ jobs:
           bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
           clips="$(xcrun simctl get_app_container "$udid" "$bundle_id" data)/tmp/selftest-clips"
           mkdir -p "$clips"
-          say -o "$RUNNER_TEMP/en.aiff" "I will send you the report tomorrow morning."
+          # A named standard voice: the runner's default voice can be one whose asset isn't installed,
+          # which writes an empty file (run 43752510565).
+          en_voices=$(say -v '?' | awk '$2 ~ /^en_(US|GB)$/ {print $1}')
+          en_voice=$(echo "$en_voices" | grep -x Samantha || echo "$en_voices" | head -1)
+          say -v "$en_voice" -o "$RUNNER_TEMP/en.aiff" "I will send you the report tomorrow morning."
           afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/en.aiff" "$clips/en.wav"
           say -v '?' | grep -i 'ko_KR' || true
           # Yuna is the standard Korean voice; the novelty voices (Eddy, Flo…) need their full names.
