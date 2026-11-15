@@ -234,8 +234,8 @@ private final class FrameClock: @unchecked Sendable {
     }
 }
 
-/// Wraps AVAudioConverter for use from the tap thread only.
-private final class BufferConverter: @unchecked Sendable {
+/// Wraps AVAudioConverter for one thread at a time: the tap, or the CI probe that feeds a clip.
+final class BufferConverter: @unchecked Sendable {
     private let converter: AVAudioConverter
     private let outputFormat: AVAudioFormat
 
