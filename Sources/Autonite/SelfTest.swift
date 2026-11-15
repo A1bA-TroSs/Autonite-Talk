@@ -20,6 +20,13 @@ enum SelfTest {
 
     static let whisperSentinel = "autonite whisper selftest succeeded"
 
+    /// `AUTONITE_SELFTEST=voice`: the voiceprint-only voice path (rubric M3 and M5), run in CI.
+    static var isVoiceRequested: Bool {
+        ProcessInfo.processInfo.environment["AUTONITE_SELFTEST"] == "voice"
+    }
+
+    static let voiceSentinel = "autonite voice selftest succeeded"
+
     @MainActor
     static func run(_ model: FeasibilityModel) async {
         var failures: [String] = []
@@ -60,8 +67,11 @@ enum SelfTest {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("selftest-profile")
         let store = VoiceProfileStore(directory: folder)
         do {
-            try store.save(VoiceProfile(enrollmentAudio: [0, 0.1], sampleRate: 16_000, voiceprint: [1, 0]))
+            try store.save(VoiceProfile(voiceprint: [1, 0], voiceprints: [[1, 0]]))
             expect(try store.load() != nil, "profile did not reload")
+            // Rubric M3: the saved profile holds prints only, no samples.
+            let saved = try Data(contentsOf: folder.appendingPathComponent("voice-profile.plist"))
+            expect(!VoiceProfileStore.holdsAudio(saved), "the saved profile holds audio")
             try store.delete()
             expect(try store.load() == nil, "profile was not deleted")
         } catch {
@@ -148,6 +158,98 @@ enum SelfTest {
             exit(0)
         }
         failures.forEach { log("whisper selftest FAIL: \($0)") }
+        exit(1)
+    }
+
+    /// The voice path end to end on speech CI made with `say` and copied into the app's tmp folder
+    /// (`selftest-voice/`): a profile is made from one synthetic voice and must hold no audio; then a
+    /// conversation of that voice and another runs through the unprimed diarizer, and the user's
+    /// slot must be found by voiceprint, on the right voice. Synthesized speech, never microphone audio.
+    @MainActor
+    static func runVoice() async {
+        log("voice selftest started")
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("selftest-voice", isDirectory: true)
+        let rate = 16_000.0
+        var failures: [String] = []
+        do {
+            let voice = VoiceDiarizer()
+            let started = Date()
+            try await voice.load()
+            log("voice selftest: diarizer and voiceprint models loaded in \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
+
+            let enrolment = try WhisperReader.samples(ofFile: folder.appendingPathComponent("me-enrol.wav").path)
+            let profile = try voice.makeProfile(reading: [], freeSpeech: enrolment, sampleRate: rate)
+            let encoder = PropertyListEncoder()
+            encoder.outputFormat = .binary
+            let saved = try encoder.encode(profile)
+            log("voice selftest: profile from \(String(format: "%.1f", Double(enrolment.count) / rate)) s of speech: \(profile.allPrints.count) prints, \(saved.count) bytes")
+            if VoiceProfileStore.holdsAudio(saved) { failures.append("the profile holds audio") }
+            if try !voice.enroll(profile) { failures.append("the profile was not taken") }
+
+            // Other, user, other, user, with a short pause between turns.
+            var audio: [Float] = []
+            var mine: [ClosedRange<Double>] = []
+            var theirs: [ClosedRange<Double>] = []
+            for name in ["turn1-other", "turn2-me", "turn3-other", "turn4-me"] {
+                let turn = try WhisperReader.samples(ofFile: folder.appendingPathComponent("\(name).wav").path)
+                let start = Double(audio.count) / rate
+                audio += turn
+                let range = start...(Double(audio.count) / rate)
+                if name.hasSuffix("-me") { mine.append(range) } else { theirs.append(range) }
+                audio += [Float](repeating: 0, count: Int(rate * 0.4))
+            }
+            // Fed in 100 ms chunks, as the microphone delivers it.
+            let chunk = Int(rate / 10)
+            var foundAt: Double?
+            let fedStarted = Date()
+            for offset in stride(from: 0, to: audio.count, by: chunk) {
+                try voice.feed(Array(audio[offset..<min(offset + chunk, audio.count)]), sampleRate: rate)
+                if foundAt == nil, voice.snapshot().userSlot != nil { foundAt = Double(min(offset + chunk, audio.count)) / rate }
+            }
+            try voice.finish()
+            let snapshot = voice.snapshot()
+            log("voice selftest: \(String(format: "%.1f", Double(audio.count) / rate)) s of conversation diarized in \(String(format: "%.1f", Date().timeIntervalSince(fedStarted))) s")
+
+            func overlap(_ slot: Int, _ ranges: [ClosedRange<Double>]) -> Double {
+                var total = 0.0
+                for turn in snapshot.turns where turn.slot == slot {
+                    for range in ranges {
+                        total += max(0, min(turn.end, range.upperBound) - max(turn.start, range.lowerBound))
+                    }
+                }
+                return total
+            }
+            let slots = Set(snapshot.turns.map(\.slot)).sorted()
+            for slot in slots {
+                log("voice selftest slot \(slot): \(String(format: "%.1f", overlap(slot, mine))) s in the user's turns, \(String(format: "%.1f", overlap(slot, theirs))) s in the other's")
+            }
+            let expected = slots.max { overlap($0, mine) < overlap($1, mine) }
+            let userSeconds = mine.reduce(0.0) { $0 + ($1.upperBound - $1.lowerBound) }
+            let otherSeconds = theirs.reduce(0.0) { $0 + ($1.upperBound - $1.lowerBound) }
+            log("voice selftest: user's slot found by voiceprint = \(snapshot.userSlot.map { "\($0)" } ?? "none"), expected \(expected.map { "\($0)" } ?? "none"); found at \(foundAt.map { String(format: "%.1f s", $0) } ?? "never"), the user's first turn ran \(String(format: "%.1f-%.1f s", mine[0].lowerBound, mine[0].upperBound))")
+            if snapshot.userSlot == nil || snapshot.userSlot != expected { failures.append("the user's slot was not found on the user's voice") }
+            if let expected {
+                if overlap(expected, mine) < userSeconds / 2 { failures.append("the user's slot covers under half of the user's speech") }
+                if overlap(expected, theirs) > otherSeconds / 2 { failures.append("the user's slot covers over half of the other voice") }
+            }
+            for range in mine {
+                let match = voice.voiceMatch(start: max(range.lowerBound, range.upperBound - 3), end: range.upperBound)
+                log("voice selftest user turn \(String(format: "%.1f", range.lowerBound)) s: match \(match.map { String(format: "%.2f", $0) } ?? "none")")
+                if (match ?? 0) < VoiceVerifier.threshold { failures.append("a user turn did not match the profile") }
+            }
+            for range in theirs {
+                let match = voice.voiceMatch(start: max(range.lowerBound, range.upperBound - 3), end: range.upperBound)
+                log("voice selftest other turn \(String(format: "%.1f", range.lowerBound)) s: match \(match.map { String(format: "%.2f", $0) } ?? "none")")
+                if let match, match >= VoiceVerifier.threshold { failures.append("the other voice matched the profile") }
+            }
+        } catch {
+            failures.append("the voice path failed: \(error.localizedDescription)")
+        }
+        if failures.isEmpty {
+            log(voiceSentinel)
+            exit(0)
+        }
+        failures.forEach { log("voice selftest FAIL: \($0)") }
         exit(1)
     }
 

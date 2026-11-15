@@ -17,9 +17,12 @@ struct AutoniteApp: App {
             // The Pass 0 harness (Lab) opens from the gear on the Autunite header, for evidence runs.
             Pass1RootView(model: pass1)
             .task {
+                #if DEBUG
                 if let screen = ProcessInfo.processInfo.environment["AUTONITE_SCREEN"] { pass1.showFixture(screen) }
+                #endif
                 if SelfTest.isRequested { await SelfTest.run(lab) }
                 if SelfTest.isWhisperRequested { await SelfTest.runWhisper() }
+                if SelfTest.isVoiceRequested { await SelfTest.runVoice() }
             }
         }
     }

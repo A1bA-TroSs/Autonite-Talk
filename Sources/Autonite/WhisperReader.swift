@@ -13,11 +13,13 @@ import WhisperKit
 /// caller awaits each read before starting the next, so the model is never used twice at once.
 final class WhisperReader: @unchecked Sendable {
     enum Model: String, CaseIterable, Codable, Sendable {
-        /// 479 MB on disk; 0.34 s per short Korean clip warm on an M4, swear recall 7/9 on the ko20
-        /// bench (docs/loop/whisper-bench/RESULTS.md). Keeps up with talk.
+        /// 479 MB on disk; 0.34 s per 1.85 s Korean clip warm on an M4. With the app's word list it
+        /// catches 8 of the 9 swears on the ko20 bench (docs/loop/whisper-bench/RESULTS.md). Keeps up
+        /// with talk.
         case standard = "openai_whisper-small"
-        /// Large-v3 turbo, 4-bit (626 MB). The bench's full-size turbo heard 8/9 swears at 0.73 s per
-        /// clip on an M4, so on an iPhone it may finish its re-reads after the session.
+        /// Large-v3 turbo, 4-bit (606 MB on disk). 1.11 s per 1.85 s clip warm on an M4 and the same
+        /// 8 of 9 swears as small on that bench, so on an iPhone its re-reads may finish after the
+        /// session.
         case accurate = "openai_whisper-large-v3-v20240930_626MB"
     }
 

@@ -37,15 +37,16 @@ public enum CopyKey: String, CaseIterable, Sendable {
     case practiceTitle, practiceBody, practiceBadge
     case practiceAskManagerTitle, practiceAskManagerPrompt, practiceRequestJuniorTitle, practiceRequestJuniorPrompt
     case practiceDeclineTitle, practiceDeclinePrompt, practiceDisagreeTitle, practiceDisagreePrompt
-    case learnerRegisterNote, cueCheckedAgain, cueFirstHeard, lastHeardWhisper
+    case learnerRegisterNote, cueCheckedAgain, cueFirstHeard
     case recapOpen, recapTitle, recapPracticeTitle, recapGoal, recapEmpty, recapCues, recapRegister, recapWords
-    case recapChecking, recapWhisperHeard, recapOnlyWhisper, recapDisagree, recapAccurate, recapInaccurate
-    case recapMute, recapMuted, recapNewSession, recapKeptNote, recapLength, recapNotCued
+    case recapChecking, recapOnlyWhisper, recapDisagree, recapAccurate, recapInaccurate
+    case recapMute, recapMuted, recapNewSession, recapKeptNote, recapLength
+    case recapUnconfirmed, recapAppleHeard, muteOfferTitle, muteOfferBody, muteOfferKeep, whisperAppleOnly
     case settingsTitle, appLanguage, appLanguageNote, appLanguageFollow
     case whisperTitle, whisperBody, whisperUse, whisperStandard, whisperAccurate, whisperDownload, whisperDownloading
     case whisperPreparing, whisperReady, whisperFailed, whisperDelete, whisperNetwork
     case myWordsTitle, myWordsBody, myWordsPlaceholder, myWordsAdd, myWordsAdded, myWordsMuted, myWordsNone
-    case myDataTitle, myDataBody, dataVoice, dataMarks, dataWords, dataWhisper, dataRecap, dataDelete, dataNone, labOpen
+    case myDataTitle, myDataBody, dataVoice, dataVoiceDetail, dataMarks, dataWords, dataWhisper, dataRecap, dataDelete, dataNone, labOpen
 }
 
 public enum Copy {
@@ -64,7 +65,7 @@ public enum Copy {
         .welcomeBody: "You set the goal for each conversation. Autunite listens beside you and gives a gentle buzz when your wording might not match it. Everything stays on this iPhone.",
         .consentTitle: "May Autunite learn your voice?",
         .consentBody: "To react only to your own words, Autunite keeps a voice profile of you. This is biometric data, separate from permission to record a conversation.",
-        .consentStorage: "Your voice profile and the short reading you record stay on this iPhone, protected, and never leave it. You can delete them at any time.",
+        .consentStorage: "Only your voice profile is kept: numbers that describe how your voice sounds, protected on this iPhone and never sent anywhere. The reading you record makes the profile and is then thrown away, never saved. You can delete the profile at any time.",
         .consentAgree: "Yes, learn my voice",
         .consentDecline: "Not now",
         .consentDeclined: "That's fine. Without a voice profile, Autunite stays quiet and gives no cues.",
@@ -81,7 +82,7 @@ public enum Copy {
         .checkBody: "Lean back, about 1 m from the phone, and say this:",
         .checkPassed: "Got it, that sounded like you.",
         .checkFailed: "That one was hard to hear. Two more short sentences will help.",
-        .baselineTitle: "Saving your voice",
+        .baselineTitle: "Saving your voice profile",
         .baselineBody: "Setting up your profile on this iPhone.",
         .enrolmentDone: "All set. Autunite now knows your voice.",
         .deleteVoice: "Delete my voice profile",
@@ -121,7 +122,7 @@ public enum Copy {
         .cueTryNext: "Try next",
         .cueDismiss: "Dismiss",
         .cueMarkInaccurate: "This cue was wrong",
-        .cueMarked: "Thanks, noted. This helps Autunite learn.",
+        .cueMarked: "Noted. Mark the same word wrong twice and you can stop it being flagged.",
         .readingRegisterCasual: "This may come across as more casual than you planned.",
         .readingWordChoiceHarsh: "A word here may sound sharper than you mean it.",
         .whyRegisterPolite: "You chose polite speech for this conversation.",
@@ -167,7 +168,6 @@ public enum Copy {
         .learnerRegisterNote: "Tip: in Korean, ending a sentence with -요 or -니다 keeps it polite.",
         .cueCheckedAgain: "Checked again with Whisper",
         .cueFirstHeard: "First heard",
-        .lastHeardWhisper: "Whisper heard",
         .recapOpen: "See the recap",
         .recapTitle: "Recap",
         .recapPracticeTitle: "Practice recap",
@@ -177,8 +177,13 @@ public enum Copy {
         .recapRegister: "Casual speech",
         .recapWords: "Harsh words",
         .recapChecking: "Checking again with Whisper…",
-        .recapWhisperHeard: "Whisper heard",
-        .recapOnlyWhisper: "Only Whisper heard this, so no cue was given.",
+        .recapOnlyWhisper: "Only Whisper heard this, so no cue was given. It may have misheard.",
+        .recapUnconfirmed: "Whisper says it heard · not confirmed",
+        .recapAppleHeard: "Apple heard",
+        .muteOfferTitle: "Marked wrong more than once",
+        .muteOfferBody: "Stop flagging this word? You can flag it again from Settings, My words.",
+        .muteOfferKeep: "Keep flagging",
+        .whisperAppleOnly: "Whisper isn't ready, so this conversation uses Apple's recognition only.",
         .recapDisagree: "The two recognisers heard this differently.",
         .recapAccurate: "Accurate",
         .recapInaccurate: "Wrong",
@@ -187,7 +192,6 @@ public enum Copy {
         .recapNewSession: "New conversation",
         .recapKeptNote: "This recap is only in memory. It's gone when you start a new conversation or close the app.",
         .recapLength: "Length",
-        .recapNotCued: "Not cued",
         .settingsTitle: "Settings",
         .appLanguage: "App language",
         .appLanguageNote: "Set apart from the speech language. Learning Korean? Keep the app in English and speak Korean.",
@@ -214,6 +218,7 @@ public enum Copy {
         .myDataTitle: "My data",
         .myDataBody: "Everything below stays on this iPhone. Nothing is sent anywhere; the internet is used only to download speech models.",
         .dataVoice: "Voice profile",
+        .dataVoiceDetail: "voiceprints only, no recording",
         .dataMarks: "Cues marked wrong",
         .dataWords: "My word list",
         .dataWhisper: "Whisper model",
@@ -228,7 +233,7 @@ public enum Copy {
         .welcomeBody: "대화마다 목표는 내가 정해요. 오토나이트는 옆에서 조용히 듣다가, 내 말이 그 목표와 조금 달라질 수 있을 때 살짝 진동으로 알려 드려요. 모든 것은 이 아이폰 안에만 있어요.",
         .consentTitle: "내 목소리를 익혀도 될까요?",
         .consentBody: "내 말에만 반응하려면 오토나이트가 내 목소리 프로필을 저장해야 해요. 이는 생체 정보이며, 대화 녹음 동의와는 따로 받아요.",
-        .consentStorage: "목소리 프로필과 짧은 낭독 녹음은 보호된 상태로 이 아이폰에만 남고, 밖으로 나가지 않아요. 언제든 삭제할 수 있어요.",
+        .consentStorage: "목소리 프로필만 남아요. 목소리의 특징을 나타낸 숫자이고, 보호된 상태로 이 아이폰에만 있으며 밖으로 나가지 않아요. 낭독 녹음은 프로필을 만든 뒤 버리고 저장하지 않아요. 프로필은 언제든 삭제할 수 있어요.",
         .consentAgree: "네, 제 목소리를 익혀 주세요",
         .consentDecline: "다음에 할게요",
         .consentDeclined: "괜찮아요. 목소리 프로필이 없으면 오토나이트는 신호를 보내지 않고 조용히 있어요.",
@@ -245,7 +250,7 @@ public enum Copy {
         .checkBody: "휴대폰에서 1m쯤 몸을 뒤로 젖히고 이렇게 말해 주세요:",
         .checkPassed: "좋아요, 본인 목소리로 들렸어요.",
         .checkFailed: "이번엔 잘 들리지 않았어요. 짧은 문장 두 개만 더 읽어 주세요.",
-        .baselineTitle: "목소리를 저장하고 있어요",
+        .baselineTitle: "목소리 프로필을 저장하고 있어요",
         .baselineBody: "이 아이폰에 프로필을 만들고 있어요.",
         .enrolmentDone: "준비됐어요. 이제 오토나이트가 내 목소리를 알아요.",
         .deleteVoice: "내 목소리 프로필 삭제",
@@ -285,7 +290,7 @@ public enum Copy {
         .cueTryNext: "이렇게 이어 가 보세요",
         .cueDismiss: "닫기",
         .cueMarkInaccurate: "이 신호는 틀렸어요",
-        .cueMarked: "알려 주셔서 고마워요. 더 정확해지는 데 도움이 돼요.",
+        .cueMarked: "기록했어요. 같은 말을 두 번 틀렸다고 하면 그 말은 알리지 않게 할 수 있어요.",
         .readingRegisterCasual: "생각했던 것보다 편하게 들릴 수도 있어요.",
         .readingWordChoiceHarsh: "이 단어가 생각보다 날카롭게 들릴 수도 있어요.",
         .whyRegisterPolite: "이번 대화는 존댓말로 하기로 했어요.",
@@ -331,7 +336,6 @@ public enum Copy {
         .learnerRegisterNote: "팁: 문장을 -요나 -니다로 끝내면 공손하게 들려요.",
         .cueCheckedAgain: "Whisper로 한 번 더 확인했어요",
         .cueFirstHeard: "처음 들은 말",
-        .lastHeardWhisper: "Whisper가 들은 말",
         .recapOpen: "돌아보기 보기",
         .recapTitle: "돌아보기",
         .recapPracticeTitle: "연습 돌아보기",
@@ -341,8 +345,13 @@ public enum Copy {
         .recapRegister: "반말",
         .recapWords: "거친 말",
         .recapChecking: "Whisper로 다시 듣는 중…",
-        .recapWhisperHeard: "Whisper가 들은 말",
-        .recapOnlyWhisper: "Whisper만 들은 말이라 신호는 보내지 않았어요.",
+        .recapOnlyWhisper: "Whisper만 들은 말이라 신호는 보내지 않았어요. 잘못 들었을 수도 있어요.",
+        .recapUnconfirmed: "Whisper가 들었다고 한 말 · 확인 안 됨",
+        .recapAppleHeard: "Apple이 들은 말",
+        .muteOfferTitle: "여러 번 틀렸다고 표시한 말",
+        .muteOfferBody: "이 말은 이제 알리지 않을까요? 설정의 내 단어에서 다시 알리게 할 수 있어요.",
+        .muteOfferKeep: "계속 알리기",
+        .whisperAppleOnly: "Whisper가 아직 준비되지 않아 이번 대화는 Apple 인식만 써요.",
         .recapDisagree: "두 인식기가 다르게 들었어요.",
         .recapAccurate: "맞았어요",
         .recapInaccurate: "틀렸어요",
@@ -351,7 +360,6 @@ public enum Copy {
         .recapNewSession: "새 대화",
         .recapKeptNote: "이 돌아보기는 메모리에만 있어요. 새 대화를 시작하거나 앱을 닫으면 사라져요.",
         .recapLength: "대화 시간",
-        .recapNotCued: "신호 없음",
         .settingsTitle: "설정",
         .appLanguage: "앱 언어",
         .appLanguageNote: "말할 언어와 따로 정할 수 있어요. 한국어를 배우는 중이라면 앱은 영어로, 말은 한국어로 해 보세요.",
@@ -378,6 +386,7 @@ public enum Copy {
         .myDataTitle: "내 데이터",
         .myDataBody: "아래 모든 것은 이 아이폰에만 있어요. 밖으로 보내는 것은 없고, 인터넷은 음성 모델을 받을 때만 써요.",
         .dataVoice: "목소리 프로필",
+        .dataVoiceDetail: "녹음 없이 목소리 특징만",
         .dataMarks: "틀렸다고 표시한 신호",
         .dataWords: "내 단어 목록",
         .dataWhisper: "Whisper 모델",

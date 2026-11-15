@@ -4,7 +4,11 @@ import AutoniteCore
 import FluidAudio
 import Foundation
 
-/// Pass 0 experiment 2: FluidAudio's Sortformer streaming diarizer with the user's voice enrolled.
+/// FluidAudio's Sortformer streaming diarizer, with the user's slot found by voiceprint.
+///
+/// The saved profile holds voiceprints only, no audio (rubric M3), and Sortformer can only prime a
+/// slot from audio. So the diarizer runs unprimed, and `UserSlotFinder` names the slot whose
+/// speech matches the user's prints. Until it does, nothing is called the user's and no cue fires.
 ///
 /// Not actor-isolated, like `LiveTranscriptionEngine`: audio arrives from a background task and
 /// Core ML runs there. Every access to the diarizer goes through the lock.
@@ -38,6 +42,7 @@ final class VoiceDiarizer: @unchecked Sendable {
     private var finalized: [SpeakerTurn] = []
     private var tentative: [SpeakerTurn] = []
     private var userSlot: Int?
+    private var finder = UserSlotFinder()
 
     var isLoaded: Bool { lock.withLock { loaded } }
 
@@ -53,14 +58,14 @@ final class VoiceDiarizer: @unchecked Sendable {
         }
     }
 
-    /// Builds the saved profile from an enrolment clip: the audio plus its WeSpeaker voiceprint.
+    /// Builds the saved profile from an enrolment clip: its WeSpeaker voiceprints, not the audio.
     func makeProfile(samples: [Float], sampleRate: Double) throws -> VoiceProfile {
         try makeProfile(reading: [], freeSpeech: samples, sampleRate: sampleRate)
     }
 
     /// Builds the Pass 1 profile. The voiceprint averages the scripted reading and the free speech,
-    /// so both registers and both speaking styles count. The diarizer is primed from the free
-    /// speech, stored at 16 kHz to keep the file small.
+    /// so both registers and both speaking styles count, and one print per few seconds keeps each
+    /// tone. Only the prints are kept; the audio is dropped when this returns (rubric M3).
     func makeProfile(reading: [Float], freeSpeech: [Float], sampleRate: Double) throws -> VoiceProfile {
         try lock.withLock {
             let free = try converter.resample(freeSpeech, from: sampleRate)
@@ -72,7 +77,7 @@ final class VoiceDiarizer: @unchecked Sendable {
             let mean = (0..<prints[0].count).map { i in prints.map { $0[i] }.reduce(0, +) / Float(prints.count) }
             // One print per few seconds of each sentence and of the free speech, so every tone counts.
             let pieces = try chunkPrints(read) + chunkPrints(free)
-            return VoiceProfile(enrollmentAudio: free, sampleRate: Self.printRate, voiceprint: mean, voiceprints: pieces)
+            return VoiceProfile(voiceprint: mean, voiceprints: pieces)
         }
     }
 
@@ -93,9 +98,9 @@ final class VoiceDiarizer: @unchecked Sendable {
         }
     }
 
-    /// Starts a new stream with the enrolled voice in a known slot. Returns that slot, or nil
-    /// when enrolment found no speech. The enrolment audio is used here and not kept by the diarizer.
-    func beginSession(enrollment: [Float], sampleRate: Double) throws -> Int? {
+    /// Starts a new stream that looks for the voice of an enrolment clip held in memory (the lab's
+    /// enrol button). Returns false when the clip gave no print. The clip itself is not kept.
+    func beginSession(enrollment: [Float], sampleRate: Double) throws -> Bool {
         try enroll(makeProfile(samples: enrollment, sampleRate: sampleRate))
     }
 
@@ -111,6 +116,18 @@ final class VoiceDiarizer: @unchecked Sendable {
             while let update = try diarizer.process() {
                 apply(update)
             }
+            findUser()
+        }
+    }
+
+    /// Caller holds the lock. Prints each slot's latest clear stretch (at most every
+    /// `UserSlotFinder.recheckSeconds`) and lets the finder name the user's slot.
+    private func findUser() {
+        guard !enrolledPrints.isEmpty else { return }
+        for (slot, window) in finder.windows(in: Array(finalized.suffix(20)) + tentative) {
+            guard let print = printOf(start: window.lowerBound, end: window.upperBound),
+                  let match = VoiceVerifier.bestMatch(print, against: enrolledPrints + sessionPrints) else { continue }
+            userSlot = finder.record(slot: slot, window: window, match: match)
         }
     }
 
@@ -192,22 +209,21 @@ final class VoiceDiarizer: @unchecked Sendable {
 }
 
 extension VoiceDiarizer: SpeakerEnrolling {
-    /// Starts a new stream with the profile's voice in a known slot (SPEC AC3). Returns that slot,
-    /// or nil when the enrolment audio held no speech.
-    func enroll(_ profile: VoiceProfile) throws -> Int? {
-        try lock.withLock {
+    /// Starts a new stream that looks for the profile's voice (SPEC AC3). The user's slot is
+    /// unknown until their speech matches the prints. Returns false when the profile has no print.
+    func enroll(_ profile: VoiceProfile) throws -> Bool {
+        lock.withLock {
             diarizer.reset()
             finalized = []
             tentative = []
             recent = []
             recentEnd = 0
             inputSamples = 0
-            // Profiles saved before multi-print enrolment get their prints from the stored audio.
-            let pieces = try profile.voiceprints ?? chunkPrints(profile.enrollmentAudio)
-            enrolledPrints = [profile.voiceprint] + pieces
+            enrolledPrints = profile.allPrints.filter { !$0.isEmpty }
             sessionPrints = []
-            userSlot = try diarizer.enrollSpeaker(withAudio: profile.enrollmentAudio, sourceSampleRate: profile.sampleRate, named: "Me")?.index
-            return userSlot
+            finder = UserSlotFinder()
+            userSlot = nil
+            return !enrolledPrints.isEmpty
         }
     }
 }

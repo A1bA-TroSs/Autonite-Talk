@@ -34,8 +34,9 @@ public enum ReadingPipeline {
 /// talking instead of after the sentence is finalised (Danny, 2026-11-02: the buzz came too late).
 ///
 /// Only settled evidence counts: a harsh word as soon as it appears, and a register mismatch only
-/// for a sentence the transcriber has already closed with punctuation. The trailing unfinished
-/// sentence is never read for register, because a half-said word can look casual.
+/// for a sentence already closed by punctuation, a pause, or a word that opens the next sentence
+/// (근데, 그래서…; see `KoreanRegisterReader.openers`). The trailing unfinished sentence is never
+/// read for register, because a half-said word can look casual.
 public struct EarlyReader: Sendable {
     /// Mismatch hits already cued in the current in-progress line.
     public private(set) var cuedHits = 0

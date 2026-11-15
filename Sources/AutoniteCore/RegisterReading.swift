@@ -50,11 +50,28 @@ public enum KoreanRegisterReader {
         }
     }
 
-    /// Splits on sentence punctuation; text after the last mark counts as a sentence too.
+    /// Splits on sentence punctuation, and before a word that opens a new sentence (`openers`);
+    /// text after the last split counts as a sentence too.
     static func sentences(in phrase: String) -> [String] {
         phrase.split(whereSeparator: { ".?!…\n".contains($0) })
+            .flatMap(splitBeforeOpeners)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+    }
+
+    /// Words that start a new sentence. Recognisers often leave spoken Korean unpunctuated, so a
+    /// clause right before one of these is read as finished, the way a listener hears it, while
+    /// the user keeps talking (Danny's "UDP" chunking; round 1 review: …요 근데 / …다 근데).
+    static let openers: Set<String> = ["근데", "그런데", "그래서", "그리고", "그러니까", "그러면", "그럼", "하지만", "그래도", "그러나", "아무튼", "암튼", "어쨌든"]
+
+    static func splitBeforeOpeners(_ piece: Substring) -> [String] {
+        var parts: [[Substring]] = [[]]
+        for word in piece.split(separator: " ") {
+            let bare = word.trimmingCharacters(in: CharacterSet(charactersIn: ","))
+            if openers.contains(bare), !(parts.last ?? []).isEmpty { parts.append([]) }
+            parts[parts.count - 1].append(word)
+        }
+        return parts.filter { !$0.isEmpty }.map { $0.joined(separator: " ") }
     }
 
     /// The register of the sentence's last word, or nil when its ending is not clearly final.

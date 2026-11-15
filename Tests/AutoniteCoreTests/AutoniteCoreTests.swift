@@ -281,7 +281,7 @@ private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
 
 @Test func voiceProfileStoreSurvivesRelaunchAndDeletes() throws {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("profile-\(UUID().uuidString)")
-    let profile = VoiceProfile(enrollmentAudio: [0.1, -0.2, 0.3], sampleRate: 16_000, voiceprint: [0.6, 0.8])
+    let profile = VoiceProfile(voiceprint: [0.6, 0.8], voiceprints: [[0.6, 0.8], [0.8, 0.6]])
     try VoiceProfileStore(directory: folder).save(profile)
     // A fresh store, as after a relaunch, reads the same profile.
     #expect(try VoiceProfileStore(directory: folder).load() == profile)
@@ -292,9 +292,9 @@ private func word(_ text: String, _ start: Double, _ end: Double) -> WordSpan {
 
 private final class FakeEnroller: SpeakerEnrolling {
     var received: VoiceProfile?
-    func enroll(_ profile: VoiceProfile) throws -> Int? {
+    func enroll(_ profile: VoiceProfile) throws -> Bool {
         received = profile
-        return profile.enrollmentAudio.isEmpty ? nil : 0
+        return !profile.voiceprint.isEmpty
     }
 }
 
@@ -302,11 +302,111 @@ private final class FakeEnroller: SpeakerEnrolling {
     let folder = FileManager.default.temporaryDirectory.appendingPathComponent("profile-\(UUID().uuidString)")
     defer { try? VoiceProfileStore(directory: folder).delete() }
     let store = VoiceProfileStore(directory: folder)
-    try store.save(VoiceProfile(enrollmentAudio: [0.1, 0.2], sampleRate: 48_000, voiceprint: [1, 0]))
+    try store.save(VoiceProfile(voiceprint: [1, 0]))
     let enroller = FakeEnroller()
-    let slot = try enroller.enroll(#require(try store.load()))
-    #expect(slot == 0)
+    let taken = try enroller.enroll(#require(try store.load()))
+    #expect(taken)
     #expect(enroller.received?.voiceprint == [1, 0])
+}
+
+// MARK: Rubric M3: no audio on disk
+
+private func plistKeys(_ folder: URL) throws -> Set<String> {
+    let data = try Data(contentsOf: folder.appendingPathComponent("voice-profile.plist"))
+    let plist = try #require(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+    return Set(plist.keys)
+}
+
+@Test func savedVoiceProfileHoldsNoAudio() throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("profile-\(UUID().uuidString)")
+    defer { try? VoiceProfileStore(directory: folder).delete() }
+    try VoiceProfileStore(directory: folder).save(VoiceProfile(voiceprint: [0.6, 0.8], voiceprints: [[0.6, 0.8]]))
+    // Prints and a date, and nothing that could hold samples.
+    #expect(try plistKeys(folder) == ["voiceprint", "voiceprints", "createdAt"])
+    #expect(!VoiceProfileStore.holdsAudio(try Data(contentsOf: folder.appendingPathComponent("voice-profile.plist"))))
+}
+
+/// The shape earlier builds saved, enrolment audio included.
+private struct LegacyVoiceProfile: Encodable {
+    let enrollmentAudio: [Float]
+    let sampleRate: Double
+    let voiceprint: [Float]
+    let voiceprints: [[Float]]?
+    let createdAt: Date
+}
+
+@Test func earlierProfileIsRewrittenWithoutItsAudio() throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("profile-\(UUID().uuidString)")
+    defer { try? VoiceProfileStore(directory: folder).delete() }
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let encoder = PropertyListEncoder()
+    encoder.outputFormat = .binary
+    let legacy = LegacyVoiceProfile(enrollmentAudio: [0.1, -0.2, 0.3], sampleRate: 16_000, voiceprint: [1, 0],
+                                    voiceprints: [[1, 0], [0.9, 0.1]], createdAt: Date(timeIntervalSince1970: 1_700_000_000))
+    try encoder.encode(legacy).write(to: folder.appendingPathComponent("voice-profile.plist"))
+    #expect(try plistKeys(folder).contains("enrollmentAudio"))
+
+    // Loading keeps the prints and rewrites the file without the samples.
+    let loaded = try #require(try VoiceProfileStore(directory: folder).load())
+    #expect(loaded == VoiceProfile(voiceprint: [1, 0], voiceprints: [[1, 0], [0.9, 0.1]], createdAt: legacy.createdAt))
+    #expect(try plistKeys(folder) == ["voiceprint", "voiceprints", "createdAt"])
+    #expect(try VoiceProfileStore(directory: folder).load() == loaded)
+}
+
+@Test func userSlotIsFoundByVoiceprintAlone() {
+    var finder = UserSlotFinder()
+    // The other person talks first; their slot doesn't sound like the user.
+    finder.record(slot: 1, window: 0...3, match: 0.41)
+    #expect(finder.slot == nil)
+    // The user's slot clears the strict bar, well above the other slot.
+    finder.record(slot: 0, window: 3...6, match: 0.8)
+    #expect(finder.slot == 0)
+}
+
+@Test func userSlotNeedsTheStrictBarAndAClearLead() {
+    // Below the strict bar: not the user yet, so nothing can cue.
+    var weak = UserSlotFinder()
+    weak.record(slot: 0, window: 0...2, match: 0.7)
+    #expect(weak.slot == nil)
+    // Two slots that both sound like the user: too close to call.
+    var close = UserSlotFinder()
+    close.record(slot: 1, window: 0...2, match: 0.7)
+    close.record(slot: 0, window: 2...4, match: 0.78)
+    #expect(close.slot == nil)
+}
+
+@Test func userSlotHoldsAgainstOneOddStretchAndMovesOnAClearOne() {
+    var finder = UserSlotFinder()
+    finder.record(slot: 0, window: 0...3, match: 0.8)
+    finder.record(slot: 1, window: 3...5, match: 0.3)
+    #expect(finder.slot == 0)
+    // One stretch of the other slot sounding close doesn't take the user's place.
+    finder.record(slot: 1, window: 5...8, match: 0.82)
+    #expect(finder.slot == 0)
+    // When the slots have clearly swapped, the user's slot follows, after a second clear stretch.
+    finder.record(slot: 0, window: 8...11, match: 0.3)
+    finder.record(slot: 1, window: 11...14, match: 0.85)
+    #expect(finder.slot == 0)
+    finder.record(slot: 1, window: 14...17, match: 0.85)
+    #expect(finder.slot == 1)
+}
+
+@Test func userSlotSearchPrintsClearRecentStretchesOnly() {
+    var finder = UserSlotFinder()
+    let turns = [
+        SpeakerTurn(slot: 0, start: 0, end: 0.6),   // too short to print
+        SpeakerTurn(slot: 1, start: 1, end: 6),     // long: its last 3 s are printed
+        SpeakerTurn(slot: 0, start: 6.5, end: 8.5),
+        SpeakerTurn(slot: 2, start: 7.5, end: 9.5), // talks over slot 0's turn
+    ]
+    let first = finder.windows(in: turns)
+    #expect(first.map(\.slot) == [1])
+    #expect(first.first?.window == 3...6)
+    // A slot is printed again only after enough new speech: its turn one second longer is
+    // skipped, two seconds longer is printed.
+    finder.record(slot: 1, window: 3...6, match: 0.4)
+    #expect(finder.windows(in: [SpeakerTurn(slot: 1, start: 1, end: 7)]).isEmpty)
+    #expect(finder.windows(in: [SpeakerTurn(slot: 1, start: 1, end: 8)]).map(\.window) == [5...8])
 }
 
 // MARK: Pass 1 P3: Korean register
@@ -819,4 +919,37 @@ private final class FakeEnroller: SpeakerEnrolling {
     #expect(recap.moments[1].cued == false)
     #expect(recap.moments[1].onlyWhisper == ["한심"])
     #expect(recap.cueCount == 1)
+}
+
+// MARK: Rubric C4: marks that change something
+
+@Test func aWordMarkedWrongTwiceIsOfferedForMutingAndTrueCuesSurvive() {
+    let first = LiveScreen.InaccurateMark(phrase: "아 짜증 나", categories: [.wordChoice])
+    // One wrong mark: nothing is offered, and the word still cues.
+    #expect(MarkReview.wordsToOffer(marks: [first], words: PersonalWords()).isEmpty)
+    // Twice: offered, but still flagged until the user says to stop.
+    let twice = [first, LiveScreen.InaccurateMark(phrase: "진짜 짜증 나네", categories: [.wordChoice])]
+    #expect(MarkReview.wordsToOffer(marks: twice, words: PersonalWords()) == ["짜증 나"])
+    #expect(WordChoiceReader.read("아 짜증 나", setting: .gentle) == .check)
+    // Register cards marked wrong don't count toward a word.
+    let register = LiveScreen.InaccurateMark(phrase: "짜증 나 그거 내가 할게", categories: [.register])
+    #expect(MarkReview.wordsToOffer(marks: [first, register], words: PersonalWords()).isEmpty)
+    // Once muted it isn't offered again, and only that word stops cueing.
+    var words = PersonalWords()
+    words.mute("짜증 나")
+    #expect(MarkReview.wordsToOffer(marks: twice, words: words).isEmpty)
+    #expect(WordChoiceReader.read("아 짜증 나", setting: .gentle, words: words) == .aligned)
+    #expect(WordChoiceReader.read("미친 거 아니야", setting: .gentle, words: words) == .check)
+}
+
+@Test func aClauseEndingBeforeASentenceOpenerIsReadMidTurn() {
+    let settings = CategorySettings.niceDefault
+    // No punctuation: the casual clause before 근데 is finished, so it counts while the user goes on.
+    #expect(EarlyReader.hits(in: "내일 갈 거야 근데 너는", language: .korean, settings: settings) == 1)
+    // A polite clause before it doesn't, and neither does a connective, which says nothing.
+    #expect(EarlyReader.hits(in: "내일 갈 거예요 근데 저는", language: .korean, settings: settings) == 0)
+    #expect(EarlyReader.hits(in: "그거 하고 근데", language: .korean, settings: settings) == 0)
+    // The finished line reads both clauses, so a polite last ending doesn't hide a casual one.
+    #expect(KoreanRegisterReader.read("내일 갈 거야 근데 너는 어때요", setting: .politeExpected).reading == .check)
+    #expect(KoreanRegisterReader.read("내일 갈 거예요 그래서 저는 괜찮아요", setting: .politeExpected).reading == .aligned)
 }

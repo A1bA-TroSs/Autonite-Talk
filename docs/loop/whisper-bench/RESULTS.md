@@ -16,6 +16,7 @@ Setup:
 | base (`openai_whisper-base`) | 143 MB | 3/9 = 0.33 | 0 | 20/20 | not re-run serially | — |
 | small (`openai_whisper-small`) | 479 MB | 7/9 = 0.78 | 0 | 20/20 | 0.34 / 0.43 | 0.19 |
 | large-v3 turbo (`openai_whisper-large-v3-v20240930_turbo`) | 1.5 GB | 8/9 = 0.89 | 0 | 20/20 | 0.73 / 0.83 | 0.40 |
+| large-v3 turbo 4-bit (`openai_whisper-large-v3-v20240930_626MB`), the app's "accurate" option | 606 MB | 8/9 = 0.89 (app word list) | not reported | not reported | 1.11 / 1.20 | 0.60 |
 
 Timing method:
 - Times are WhisperKit's per-file `fullPipeline`, from one process over all 20 clips with `--concurrent-worker-count 1`.
@@ -49,6 +50,25 @@ M7 requires all three: recall ≥ 0.9, ending accuracy ≥ 0.85 and under 1.0 s 
   - turbo as the accurate option, which may finish its re-reads after the session ends (queued);
   - base not used for swear correction: it misheard the swears it missed as harmless words (경신, 다쳐, 거저) and adds stray tokens.
 - **Unverified:** iPhone 15 timings. They need the on-device self-test, or Danny's phone.
+
+## App word-list re-score (Mac session, 2026-11-16)
+
+The same Whisper transcripts, scored with a Python port of the app's `WordChoiceReader.hits` at commit ac39882 instead of `score.py`'s variants. Numbers as reported by the Mac session.
+
+| Model | Swear recall with the app's word list |
+|---|---|
+| tiny | 3/9 = 0.33 |
+| base | 4/9 = 0.44 |
+| small | 8/9 = 0.89 |
+| large-v3 turbo (1.5 GB) | 8/9 = 0.89 |
+| large-v3 turbo 4-bit (606 MB) | 8/9 = 0.89 |
+
+- **Every model misses p19 "좆된다".** Whisper writes "존댄다" (small, 4-bit turbo) or "좋댄다" (turbo). The TTS voice may have mispronounced it.
+- **"존댄다" is not added to the word list.** It is also the contraction of 존대한다 ("uses honorifics"), which comes up in exactly the conversations Autunite is for, so it would cue falsely.
+- **Small now catches p06** through "어이없", not through "존나".
+- **Every model flags p08 "그건 니가 알아서 해"** through "알아서 해". That is a deliberate entry, but it shows the entry fires on neutral phrasing.
+- **4-bit turbo is slower than the 1.5 GB build on the M4:** 1.11 s mean per 1.85 s clip against 0.73 s, likely from 4-bit dequantisation (inference). Its first Core ML compile takes about 3.5 min. It gains no recall over small on this set and takes about 3× the time.
+- **M7 still fails for every model** at 0.89, one clip short of 0.9.
 
 ## Reproduce
 

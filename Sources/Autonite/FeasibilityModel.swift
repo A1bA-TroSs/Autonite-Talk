@@ -157,16 +157,16 @@ final class FeasibilityModel {
         self.engine = engine
         if sessionMethod == .voice {
             do {
-                let slot: Int?
+                let listening: Bool
                 if let profile {
-                    slot = try voice.enroll(profile)
+                    listening = try voice.enroll(profile)
                 } else if let enrollment {
-                    slot = try voice.beginSession(enrollment: enrollment.samples, sampleRate: enrollment.sampleRate)
+                    listening = try voice.beginSession(enrollment: enrollment.samples, sampleRate: enrollment.sampleRate)
                 } else {
-                    slot = nil
+                    listening = false
                 }
-                if slot == nil {
-                    failures.append("Enrolment found no speech; using level attribution")
+                if !listening {
+                    failures.append("No voiceprint to look for; using level attribution")
                     sessionMethod = .level
                 }
             } catch {

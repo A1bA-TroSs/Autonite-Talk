@@ -45,10 +45,8 @@ final class Pass1Model {
     /// did or didn't fire.
     var lastHeard: String?
     var lastResult: CopyKey?
-    /// Whisper's words for the last phrase when they differ from Apple's, and whether Whisper
-    /// re-read it at all.
-    var lastHeardWhisper: String?
-    var lastHeardChecked = false
+    /// A word the user has marked wrong more than once, offered for muting (`MarkReview`).
+    var muteOffer: String?
     /// The last session's flagged moments. In memory only; replaced when the next session starts.
     var recap = SessionRecap()
     /// The practice situation of the current or last session; nil for a real conversation.
@@ -83,7 +81,8 @@ final class Pass1Model {
     /// "wrong" mark and Whisper's re-read reach them.
     private var cueMoment: UUID?
     private var cuePiece: UUID?
-    private var lastHeardPiece: UUID?
+    /// Words the user chose to keep flagging when offered, so the offer isn't repeated this run.
+    private var keptWords: Set<String> = []
 
     init(lab: FeasibilityModel) {
         self.lab = lab
@@ -122,71 +121,6 @@ final class Pass1Model {
     var fixtureStartedAt: Date?
     var showsRecording: Bool { lab.isRecording || fixtureStartedAt != nil }
     var recordingStartedAt: Date? { fixtureStartedAt ?? lab.startedAt }
-
-    /// CI screenshots (AUTONITE_SCREEN=setup|live|cue|learner|practice|settings|recap): puts the
-    /// screens in a known state so a render can be compared with the UI reference. Nothing here is
-    /// saved, downloaded or recorded. Never used on a phone.
-    func showFixture(_ name: String) {
-        language = .korean
-        setup.intentionText = "차분하고 예의 있게"
-        // An enrolled user, in memory only.
-        lab.profile = VoiceProfile(enrollmentAudio: [], sampleRate: 16_000, voiceprint: [1, 0])
-        switch name {
-        case "setup":
-            route = .setup
-        case "practice":
-            route = .setup
-            showsPractice = true
-        case "settings":
-            route = .setup
-            whisperEnabled = true
-            words = PersonalWords(added: ["대박"], muted: ["짜증 나"])
-            showsSettings = true
-        case "recap":
-            showRecapFixture()
-        default:
-            route = .live
-            fixtureStartedAt = Date().addingTimeInterval(-754)
-            sessionSettings = setup.confirmed.with(words)
-            screen.start()
-            switch name {
-            case "cue":
-                // Two hits on one card, the second re-read by Whisper with other words.
-                receive(fixtureUtterance("아 그거 진짜 별로야", start: 40))
-                let second = fixtureUtterance("아 그거 진짜 별로야", start: 44)
-                receive(second)
-                receiveSecondListen(second, "아, 그거 진짜 별로잖아.")
-                screen.openCue()
-            case "learner":
-                appLanguage = .english
-                setup.intentionText = "Polite with my team lead"
-                receive(fixtureUtterance("그거 내가 할게", start: 40))
-                screen.openCue()
-            default:
-                let heard = fixtureUtterance("내일 오후에 반찬 써도 될까요", start: 30)
-                receive(heard)
-                receiveSecondListen(heard, "내일 오후에 반차 써도 될까요?")
-            }
-        }
-    }
-
-    private func fixtureUtterance(_ text: String, start: Double) -> Utterance {
-        Utterance(start: start, end: start + 2, text: text, latency: 0, meanLevelDB: nil,
-                  predicted: .user, predictionConfidence: 1, overlapped: false, voiceMatch: 0.8)
-    }
-
-    private func showRecapFixture() {
-        route = .recap
-        recap = SessionRecap()
-        recap.duration = 754
-        let first = recap.recordCue(start: 41, end: 43.5, text: "아 그거 진짜 별로야", categories: [.register])
-        recap.applySecondListen(start: 41, end: 43.5, apple: "아 그거 진짜 별로야", whisper: "아, 그거 진짜 별로잖아.", words: words)
-        recap.mark(first, .accurate)
-        let second = recap.recordCue(start: 188, end: 191, text: "그건 좀 짜증 나요", categories: [.wordChoice])
-        recap.applySecondListen(start: 188, end: 191, apple: "그건 좀 짜증 나요", whisper: "그건 좀 짜증 나요.", words: words)
-        recap.mark(second, .inaccurate)
-        recap.applySecondListen(start: 402, end: 405, apple: "아 그건 좀 한 심하다", whisper: "아, 그건 좀 한심하다.", words: words)
-    }
 
     var hasProfile: Bool { lab.profile != nil }
 
@@ -286,9 +220,7 @@ final class Pass1Model {
         lab.language = language
         lastHeard = nil
         lastResult = nil
-        lastHeardWhisper = nil
-        lastHeardChecked = false
-        lastHeardPiece = nil
+        muteOffer = nil
         earlyCuedUntil = -1
         cueMoment = nil
         cuePiece = nil
@@ -339,6 +271,7 @@ final class Pass1Model {
         marks.append(LiveScreen.InaccurateMark(phrase: cue.phrase, categories: cue.categories))
         saveMarks(marks)
         message = copy(.cueMarked)
+        offerMute(among: harshWords(on: cue), marks: marks)
     }
 
     /// The user's mark on a recap moment. "Wrong" is saved like a mark on the live card, and its
@@ -354,14 +287,31 @@ final class Pass1Model {
             marks.remove(at: i)
         }
         saveMarks(marks)
+        if verdict == .inaccurate, moment.categories.contains(.wordChoice) {
+            offerMute(among: moment.harshWords(PersonalWords(added: words.added)), marks: marks)
+        }
+    }
+
+    /// Offers to stop flagging a word from this card once it has been marked wrong
+    /// `MarkReview.offerAfter` times. Nothing is muted until the user says so.
+    private func offerMute(among cardWords: [String], marks: [LiveScreen.InaccurateMark]) {
+        let offers = MarkReview.wordsToOffer(marks: marks, words: words)
+        muteOffer = cardWords.first { offers.contains($0) && !keptWords.contains($0) }
+    }
+
+    func acceptMuteOffer(_ word: String) {
+        mute(word)
+        muteOffer = nil
+    }
+
+    func keepFlagging(_ word: String) {
+        keptWords.insert(word)
+        muteOffer = nil
     }
 
     private func receive(_ utterance: Utterance) {
         let outcome = ReadingPipeline.evaluate(utterance, language: language, settings: sessionSettings)
         lastHeard = utterance.text
-        lastHeardPiece = utterance.id
-        lastHeardWhisper = nil
-        lastHeardChecked = false
         switch outcome {
         case .quiet(let reason): lastResult = Self.quietKey(reason)
         case .read(_, let cue): lastResult = cue ? .resultCue : .resultAligned
@@ -386,9 +336,6 @@ final class Pass1Model {
         cueMoment = recap.recordCue(start: utterance.start, end: utterance.end, text: utterance.text, categories: readings.mismatches)
         cuePiece = nil
         lastHeard = utterance.text
-        lastHeardPiece = nil
-        lastHeardWhisper = nil
-        lastHeardChecked = false
         lastResult = .resultCue
         earlyCuedUntil = utterance.end
         feelCue()
@@ -399,10 +346,6 @@ final class Pass1Model {
     private func receiveSecondListen(_ utterance: Utterance, _ text: String) {
         recap.applySecondListen(start: utterance.start, end: utterance.end, apple: utterance.text, whisper: text,
                                 piece: utterance.id, words: words)
-        if utterance.id == lastHeardPiece {
-            lastHeardChecked = true
-            lastHeardWhisper = SecondReading.squash(text) == SecondReading.squash(utterance.text) ? nil : text
-        }
         if utterance.id == cuePiece { screen.applySecondListen(text, language: language) }
     }
 
@@ -475,6 +418,10 @@ final class Pass1Model {
 
     /// The chosen model is loaded and re-reading the user's speech.
     var whisperReady: Bool { lab.whisperStatus == .ready && lab.whisper.loaded == whisperModel }
+
+    /// Whisper is on but not ready (downloading, failed or not downloaded), so a running
+    /// conversation is read by Apple's recogniser alone. Shown on the live screen.
+    var whisperAppleOnly: Bool { whisperEnabled && !whisperReady && showsRecording && fixtureStartedAt == nil }
 
     func deleteWhisperModels() async {
         await lab.deleteWhisper()
@@ -592,4 +539,82 @@ final class Pass1Model {
         return total > 0 ? total : nil
     }
 }
+
+// MARK: CI screenshot fixtures
+
+#if DEBUG
+/// Debug builds only: the CI screenshot step launches the app with AUTONITE_SCREEN set, and the
+/// app shows one screen in a known state. A release build has none of this.
+extension Pass1Model {
+    /// CI screenshots (AUTONITE_SCREEN=setup|live|cue|learner|muteoffer|practice|settings|recap): puts the
+    /// screens in a known state so a render can be compared with the UI reference. Nothing here is
+    /// saved, downloaded or recorded. Never used on a phone.
+    func showFixture(_ name: String) {
+        language = .korean
+        setup.intentionText = "차분하고 예의 있게"
+        // An enrolled user, in memory only.
+        lab.profile = VoiceProfile(voiceprint: [1, 0])
+        switch name {
+        case "setup":
+            route = .setup
+        case "practice":
+            route = .setup
+            showsPractice = true
+        case "settings":
+            route = .setup
+            whisperEnabled = true
+            words = PersonalWords(added: ["대박"], muted: ["짜증 나"])
+            showsSettings = true
+        case "recap":
+            showRecapFixture()
+        default:
+            route = .live
+            fixtureStartedAt = Date().addingTimeInterval(-754)
+            sessionSettings = setup.confirmed.with(words)
+            screen.start()
+            switch name {
+            case "cue":
+                // Two hits on one card, the second re-read by Whisper with other words.
+                receive(fixtureUtterance("아 그거 진짜 별로야", start: 40))
+                let second = fixtureUtterance("아 그거 진짜 별로야", start: 44)
+                receive(second)
+                receiveSecondListen(second, "아, 그거 진짜 별로잖아.")
+                screen.openCue()
+            case "learner":
+                appLanguage = .english
+                setup.intentionText = "Polite with my team lead"
+                receive(fixtureUtterance("그거 내가 할게", start: 40))
+                screen.openCue()
+            case "muteoffer":
+                // A word marked wrong a second time: the app offers to stop flagging it.
+                receive(fixtureUtterance("아 진짜 짜증 나", start: 40))
+                screen.markInaccurate()
+                muteOffer = "짜증 나"
+            default:
+                let heard = fixtureUtterance("내일 오후에 반찬 써도 될까요", start: 30)
+                receive(heard)
+                receiveSecondListen(heard, "내일 오후에 반차 써도 될까요?")
+            }
+        }
+    }
+
+    private func fixtureUtterance(_ text: String, start: Double) -> Utterance {
+        Utterance(start: start, end: start + 2, text: text, latency: 0, meanLevelDB: nil,
+                  predicted: .user, predictionConfidence: 1, overlapped: false, voiceMatch: 0.8)
+    }
+
+    private func showRecapFixture() {
+        route = .recap
+        recap = SessionRecap()
+        recap.duration = 754
+        let first = recap.recordCue(start: 41, end: 43.5, text: "아 그거 진짜 별로야", categories: [.register])
+        recap.applySecondListen(start: 41, end: 43.5, apple: "아 그거 진짜 별로야", whisper: "아, 그거 진짜 별로잖아.", words: words)
+        recap.mark(first, .accurate)
+        let second = recap.recordCue(start: 188, end: 191, text: "그건 좀 짜증 나요", categories: [.wordChoice])
+        recap.applySecondListen(start: 188, end: 191, apple: "그건 좀 짜증 나요", whisper: "그건 좀 짜증 나요.", words: words)
+        recap.mark(second, .inaccurate)
+        recap.applySecondListen(start: 402, end: 405, apple: "아 그건 좀 한 심하다", whisper: "아, 그건 좀 한심하다.", words: words)
+    }
+}
+#endif
 #endif

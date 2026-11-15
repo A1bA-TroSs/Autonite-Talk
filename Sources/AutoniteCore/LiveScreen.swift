@@ -194,6 +194,27 @@ public struct LiveScreen: Equatable, Sendable {
     }
 }
 
+/// Words the user keeps marking wrong (rubric C4): a harsh word on cards marked inaccurate at least
+/// `offerAfter` times is offered for muting. It is only offered, never muted on its own, so a true
+/// cue survives a mis-tap; a word the user already muted isn't offered again.
+public enum MarkReview {
+    public static let offerAfter = 2
+
+    /// The words to offer, in the order they were first marked.
+    public static func wordsToOffer(marks: [LiveScreen.InaccurateMark], words: PersonalWords) -> [String] {
+        let list = PersonalWords(added: words.added)
+        var counts: [String: Int] = [:]
+        var order: [String] = []
+        for mark in marks where mark.categories.contains(.wordChoice) {
+            for word in WordChoiceReader.harshWords(in: mark.phrase, words: list) {
+                if counts[word] == nil { order.append(word) }
+                counts[word, default: 0] += 1
+            }
+        }
+        return order.filter { (counts[$0] ?? 0) >= offerAfter && !words.muted.contains($0) }
+    }
+}
+
 /// Geometry for the round meter (DESIGN.md and the UI reference): thick ring segments all the
 /// way round, fine ticks only on the upper arc. Angles are in degrees, 0 = east, increasing
 /// clockwise as on screen, so the upper half is 180...360. The needle rests pointing straight up

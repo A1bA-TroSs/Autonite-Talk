@@ -47,6 +47,14 @@ struct Pass1RootView: View {
         .sheet(isPresented: $model.showsSettings) {
             SettingsView(model: model)
         }
+        // A word marked wrong more than once (MarkReview): offered for muting, never muted unasked.
+        .alert(model.copy(.muteOfferTitle), isPresented: Binding(get: { model.muteOffer != nil }, set: { if !$0 { model.muteOffer = nil } }),
+               presenting: model.muteOffer) { word in
+            Button("\(model.copy(.recapMute)): “\(word)”") { model.acceptMuteOffer(word) }
+            Button(model.copy(.muteOfferKeep), role: .cancel) { model.keepFlagging(word) }
+        } message: { word in
+            Text("“\(word)”\n\(model.copy(.muteOfferBody))")
+        }
     }
 }
 
@@ -75,7 +83,7 @@ private struct AppHeader: View {
     }
 }
 
-private struct PrimaryButton: View {
+struct PrimaryButton: View {
     let title: String
     var enabled = true
     let action: () -> Void
@@ -370,6 +378,12 @@ struct LiveView: View {
                         .foregroundStyle(Palette.amber)
                         .multilineTextAlignment(.center)
                 }
+                if model.whisperAppleOnly {
+                    Text(model.copy(.whisperAppleOnly))
+                        .font(.footnote)
+                        .foregroundStyle(Palette.liveMuted)
+                        .multilineTextAlignment(.center)
+                }
                 LiveNowRow(model: model)
                 LastHeardRow(model: model)
                 IntentionRow(model: model)
@@ -480,8 +494,8 @@ private struct LiveNowRow: View {
     }
 }
 
-/// What the app heard last and what it did with it, so a missing cue can be explained, plus
-/// Whisper's words once its second listen of that phrase is done.
+/// What the app heard last and what it did with it, so a missing cue can be explained. Whisper's
+/// words belong on the cue card and in the recap, so the live screen stays calm.
 private struct LastHeardRow: View {
     let model: Pass1Model
 
@@ -490,14 +504,6 @@ private struct LastHeardRow: View {
             VStack(spacing: 4) {
                 Text("\(model.copy(.lastHeard)): “\(heard)”")
                     .lineLimit(2)
-                if let whisper = model.lastHeardWhisper {
-                    Text("\(model.copy(.lastHeardWhisper)): “\(whisper)”")
-                        .lineLimit(2)
-                        .foregroundStyle(Palette.primary)
-                } else if model.lastHeardChecked {
-                    Label(model.copy(.cueCheckedAgain), systemImage: "checkmark.seal")
-                        .foregroundStyle(Palette.primary)
-                }
                 if let result = model.lastResult {
                     Text(model.copy(result))
                         .foregroundStyle(result == .resultCue ? Palette.amber : Palette.liveMuted)
@@ -710,12 +716,16 @@ struct MeterView: View {
                     .fill(Palette.liveText)
                     .frame(width: 10, height: 10)
                     .position(center)
-                VStack(spacing: 8) {
+                // Kept inside the ring: the ring's inner edge is 0.35 × size from the centre, and at
+                // the text's lowest line (about 0.25 × size down) the chord is about 0.49 × size wide.
+                VStack(spacing: 6) {
                     Text(label).font(.title2.weight(.semibold))
                     Text(detail).font(.subheadline).foregroundStyle(Palette.liveMuted).multilineTextAlignment(.center)
+                        .lineLimit(2)
                 }
-                .frame(width: size * 0.6)
-                .position(x: center.x, y: center.y + size * 0.2)
+                .minimumScaleFactor(0.8)
+                .frame(width: size * 0.46)
+                .position(x: center.x, y: center.y + size * 0.15)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -754,555 +764,5 @@ struct RingSegment: Shape {
         path.closeSubpath()
         return path
     }
-}
-#endif
-
-#if os(iOS)
-// MARK: Practice
-
-/// Practice alone before a real conversation (research 2026-11-16 §5.5). Each situation shows the
-/// settings it uses before it starts, so choosing one is the confirmation.
-struct PracticeSheet: View {
-    @Bindable var model: Pass1Model
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(model.copy(.practiceBody))
-                        .foregroundStyle(Palette.liveMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                    ForEach(PracticeScenario.allCases, id: \.self) { scenario in
-                        Button {
-                            model.showsPractice = false
-                            Task { await model.startSession(practice: scenario) }
-                        } label: {
-                            HStack(alignment: .top, spacing: 14) {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(model.copy(scenario.titleKey)).font(.headline)
-                                    Text(model.copy(scenario.promptKey))
-                                        .font(.subheadline)
-                                        .foregroundStyle(Palette.liveMuted)
-                                    Text("\(model.copy(registerKey(scenario.settings.register))) · \(model.copy(wordKey(scenario.settings.wordChoice)))")
-                                        .font(.footnote.weight(.medium))
-                                        .foregroundStyle(Palette.primary)
-                                }
-                                .multilineTextAlignment(.leading)
-                                .fixedSize(horizontal: false, vertical: true)
-                                Spacer(minLength: 0)
-                                Image(systemName: "mic.circle.fill").font(.title).foregroundStyle(Palette.primary)
-                            }
-                            .padding(16)
-                            .background(Palette.liveSurface, in: RoundedRectangle(cornerRadius: 16))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!model.hasProfile)
-                    }
-                }
-                .padding(16)
-            }
-            .background(Palette.liveBackground)
-            .navigationTitle(model.copy(.practiceTitle))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(model.copy(.close)) { model.showsPractice = false }
-                }
-            }
-        }
-        .foregroundStyle(Palette.liveText)
-        .preferredColorScheme(.dark)
-    }
-}
-
-// MARK: Settings
-
-/// App language, Whisper, the user's word list, and everything kept on this iPhone with a way to
-/// delete each (research 2026-11-16 §5.6 and §5.10). The Lab stays reachable for evidence runs.
-struct SettingsView: View {
-    @Bindable var model: Pass1Model
-    @State private var newWord = ""
-    @State private var data = Pass1Model.DataSummary()
-    @State private var confirmVoiceDelete = false
-    @State private var showsLab = false
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    ForEach(Pass1Model.AppLanguage.allCases, id: \.self) { option in
-                        CheckRow(title: appLanguageTitle(option), checked: model.appLanguage == option) { model.setAppLanguage(option) }
-                    }
-                } header: {
-                    Text(model.copy(.appLanguage))
-                } footer: {
-                    Text(model.copy(.appLanguageNote))
-                }
-                .listRowBackground(Palette.liveSurface)
-
-                Section {
-                    Toggle(model.copy(.whisperUse), isOn: Binding(get: { model.whisperEnabled }, set: { model.setWhisperEnabled($0) }))
-                        .tint(Palette.primary)
-                        .disabled(model.whisperBusy)
-                    if model.whisperEnabled {
-                        ForEach(WhisperReader.Model.allCases, id: \.self) { option in
-                            CheckRow(title: model.copy(option == .standard ? .whisperStandard : .whisperAccurate),
-                                     checked: model.whisperModel == option) { model.setWhisperModel(option) }
-                                .disabled(model.whisperBusy)
-                        }
-                        WhisperStatusRow(model: model)
-                    }
-                    if data.whisperBytes != nil, !model.whisperBusy {
-                        Button(model.copy(.whisperDelete), role: .destructive) {
-                            Task {
-                                await model.deleteWhisperModels()
-                                refresh()
-                            }
-                        }
-                    }
-                } header: {
-                    Text(model.copy(.whisperTitle))
-                } footer: {
-                    Text("\(model.copy(.whisperBody))\n\(model.copy(.whisperNetwork))")
-                }
-                .listRowBackground(Palette.liveSurface)
-
-                Section {
-                    HStack {
-                        TextField(model.copy(.myWordsPlaceholder), text: $newWord)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .onSubmit(addWord)
-                        Button(model.copy(.myWordsAdd), action: addWord)
-                            .buttonStyle(.borderless)
-                            .foregroundStyle(Palette.primary)
-                            .disabled(newWord.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                    WordListRow(model: model, title: model.copy(.myWordsAdded), words: model.words.added)
-                    WordListRow(model: model, title: model.copy(.myWordsMuted), words: model.words.muted)
-                } header: {
-                    Text(model.copy(.myWordsTitle))
-                } footer: {
-                    Text(model.copy(.myWordsBody))
-                }
-                .listRowBackground(Palette.liveSurface)
-
-                Section {
-                    DataRow(model: model, title: model.copy(.dataVoice), value: bytes(data.voiceBytes),
-                            canDelete: model.hasProfile && !model.lab.isRecording) { confirmVoiceDelete = true }
-                    DataRow(model: model, title: model.copy(.dataMarks), value: count(data.marks), canDelete: data.marks > 0) {
-                        model.deleteMarks()
-                        refresh()
-                    }
-                    DataRow(model: model, title: model.copy(.dataWords), value: count(data.words), canDelete: data.words > 0) {
-                        model.deleteWords()
-                        refresh()
-                    }
-                    DataRow(model: model, title: model.copy(.dataWhisper), value: bytes(data.whisperBytes),
-                            canDelete: data.whisperBytes != nil && !model.whisperBusy) {
-                        Task {
-                            await model.deleteWhisperModels()
-                            refresh()
-                        }
-                    }
-                    Text(model.copy(.dataRecap))
-                        .font(.footnote)
-                        .foregroundStyle(Palette.liveMuted)
-                } header: {
-                    Text(model.copy(.myDataTitle))
-                } footer: {
-                    Text(model.copy(.myDataBody))
-                }
-                .listRowBackground(Palette.liveSurface)
-
-                Section {
-                    Button(model.copy(.labOpen)) { showsLab = true }
-                        .foregroundStyle(Palette.liveText)
-                }
-                .listRowBackground(Palette.liveSurface)
-            }
-            .scrollContentBackground(.hidden)
-            .background(Palette.liveBackground)
-            .navigationTitle(model.copy(.settingsTitle))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(model.copy(.close)) { model.showsSettings = false }
-                }
-            }
-            .confirmationDialog(model.copy(.deleteVoice), isPresented: $confirmVoiceDelete, titleVisibility: .visible) {
-                Button(model.copy(.dataDelete), role: .destructive) {
-                    model.showsSettings = false
-                    model.deleteVoice()
-                }
-            }
-            .sheet(isPresented: $showsLab) {
-                NavigationStack {
-                    FeasibilityView(model: model.lab)
-                        .navigationTitle(model.copy(.labTitle))
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar { Button(model.copy(.close)) { showsLab = false } }
-                }
-            }
-            .onAppear(perform: refresh)
-            .onChange(of: model.lab.whisperStatus) { _, status in
-                if case .downloading = status { return }
-                refresh()
-            }
-            .onChange(of: model.words) { refresh() }
-        }
-        .foregroundStyle(Palette.liveText)
-        .tint(Palette.primary)
-        .preferredColorScheme(.dark)
-    }
-
-    private func appLanguageTitle(_ option: Pass1Model.AppLanguage) -> String {
-        switch option {
-        case .followSpeech: model.copy(.appLanguageFollow)
-        case .korean: "한국어"
-        case .english: "English"
-        }
-    }
-
-    private func addWord() {
-        model.addWord(newWord)
-        newWord = ""
-    }
-
-    private func refresh() { data = model.dataSummary() }
-
-    private func bytes(_ value: Int64?) -> String {
-        value.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? model.copy(.dataNone)
-    }
-
-    private func count(_ value: Int) -> String { value > 0 ? "\(value)" : model.copy(.dataNone) }
-}
-
-/// A choice row with a checkmark; its title wraps rather than being cut off.
-private struct CheckRow: View {
-    let title: String
-    let checked: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Text(title).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                if checked { Image(systemName: "checkmark").foregroundStyle(Palette.primary) }
-            }
-            .contentShape(Rectangle())
-        }
-        .foregroundStyle(Palette.liveText)
-        .accessibilityAddTraits(checked ? .isSelected : [])
-    }
-}
-
-private struct WhisperStatusRow: View {
-    let model: Pass1Model
-
-    var body: some View {
-        switch model.lab.whisperStatus {
-        case .downloading(let fraction):
-            VStack(alignment: .leading, spacing: 6) {
-                Text("\(model.copy(.whisperDownloading)) · \(Int((fraction * 100).rounded()))%")
-                ProgressView(value: fraction).tint(Palette.primary)
-            }
-        case .preparing:
-            HStack(spacing: 10) {
-                ProgressView()
-                Text(model.copy(.whisperPreparing)).fixedSize(horizontal: false, vertical: true)
-            }
-        case .failed(let error):
-            VStack(alignment: .leading, spacing: 6) {
-                Text(model.copy(.whisperFailed)).foregroundStyle(Palette.amber)
-                Text(error).font(.footnote).foregroundStyle(Palette.liveMuted)
-                downloadButton
-            }
-        default:
-            if model.whisperReady {
-                Label(model.copy(.whisperReady), systemImage: "checkmark.circle.fill").foregroundStyle(Palette.primary)
-            } else {
-                downloadButton
-            }
-        }
-    }
-
-    /// The only way a model download starts; the size is in the option label above it.
-    private var downloadButton: some View {
-        Button {
-            model.downloadWhisper()
-        } label: {
-            Label(model.copy(.whisperDownload), systemImage: "arrow.down.circle")
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle(Palette.primary)
-    }
-}
-
-private struct WordListRow: View {
-    let model: Pass1Model
-    let title: String
-    let words: [String]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.subheadline).foregroundStyle(Palette.liveMuted)
-            if words.isEmpty {
-                Text(model.copy(.myWordsNone)).foregroundStyle(Palette.liveMuted)
-            }
-            ForEach(words, id: \.self) { word in
-                HStack {
-                    Text(word)
-                    Spacer()
-                    Button {
-                        model.resetWord(word)
-                    } label: {
-                        Image(systemName: "xmark.circle.fill").font(.title3).frame(width: 44, height: 36)
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(Palette.liveMuted)
-                    .accessibilityLabel("\(model.copy(.dataDelete)) \(word)")
-                }
-            }
-        }
-    }
-}
-
-private struct DataRow: View {
-    let model: Pass1Model
-    let title: String
-    let value: String
-    let canDelete: Bool
-    let delete: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).fixedSize(horizontal: false, vertical: true)
-                Text(value).font(.footnote.monospacedDigit()).foregroundStyle(Palette.liveMuted)
-            }
-            Spacer(minLength: 8)
-            if canDelete {
-                Button(model.copy(.dataDelete), role: .destructive, action: delete)
-                    .buttonStyle(.borderless)
-            }
-        }
-    }
-}
-
-// MARK: Recap
-
-/// The end-of-session recap on the warm-ivory report surface (DESIGN.md): the flagged moments in
-/// order, each with its quote, what Whisper heard, and the user's mark. No overall grade.
-struct RecapView: View {
-    @Bindable var model: Pass1Model
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        if model.recap.practice != nil {
-                            Label(model.copy(.practiceBadge), systemImage: "figure.wave")
-                                .font(.caption.weight(.semibold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .background(Palette.primary.opacity(0.45), in: Capsule())
-                        }
-                        Text(model.copy(model.recap.practice == nil ? .recapTitle : .recapPracticeTitle))
-                            .font(.largeTitle.weight(.semibold))
-                        if let practice = model.recap.practice {
-                            Text(model.copy(practice.titleKey)).font(.headline)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    RecapHeaderArt().frame(width: 104, height: 76)
-                }
-                Text(model.copy(.recapGoal))
-                    .foregroundStyle(Palette.reportMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let intention {
-                    Text("“\(intention)”").font(.headline).fixedSize(horizontal: false, vertical: true)
-                }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                    StatTile(title: model.copy(.recapLength), value: clockText(model.recap.duration))
-                    StatTile(title: model.copy(.recapCues), value: "\(model.recap.cueCount)")
-                    StatTile(title: model.copy(.recapRegister), value: "\(model.recap.cueCount(.register))")
-                    StatTile(title: model.copy(.recapWords), value: "\(model.recap.cueCount(.wordChoice))")
-                }
-                if model.lab.whisperPending > 0 {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text("\(model.copy(.recapChecking)) \(model.lab.whisperPending)")
-                    }
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.reportMuted)
-                }
-                if model.recap.moments.isEmpty {
-                    Text(model.copy(.recapEmpty))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(24)
-                        .background(Palette.reportSurface, in: RoundedRectangle(cornerRadius: 16))
-                }
-                ForEach(model.recap.moments) { moment in
-                    MomentCard(moment: moment, model: model)
-                }
-                Text(model.copy(.recapKeptNote))
-                    .font(.footnote)
-                    .foregroundStyle(Palette.reportMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                PrimaryButton(title: model.copy(.recapNewSession)) { model.newConversation() }
-            }
-            .padding(16)
-        }
-    }
-
-    private var intention: String? {
-        if let practice = model.recap.practice { return model.copy(practice.promptKey) }
-        let text = model.setup.intentionText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? nil : text
-    }
-}
-
-/// Report-only artwork (DESIGN.md): a few translucent yellow-green facets with one thin gold orbit
-/// and one dot. It never appears on the live screen.
-private struct RecapHeaderArt: View {
-    var body: some View {
-        Canvas { context, size in
-            let w = size.width, h = size.height
-            let facets: [[CGPoint]] = [
-                [CGPoint(x: w * 0.30, y: h * 0.70), CGPoint(x: w * 0.52, y: h * 0.18), CGPoint(x: w * 0.66, y: h * 0.62)],
-                [CGPoint(x: w * 0.52, y: h * 0.18), CGPoint(x: w * 0.80, y: h * 0.36), CGPoint(x: w * 0.66, y: h * 0.62)],
-                [CGPoint(x: w * 0.30, y: h * 0.70), CGPoint(x: w * 0.66, y: h * 0.62), CGPoint(x: w * 0.50, y: h * 0.86)],
-            ]
-            for (i, facet) in facets.enumerated() {
-                var path = Path()
-                path.addLines(facet)
-                path.closeSubpath()
-                context.fill(path, with: .color(Palette.primary.opacity([0.55, 0.35, 0.45][i])))
-            }
-            let orbit = Path(ellipseIn: CGRect(x: w * 0.06, y: h * 0.28, width: w * 0.88, height: h * 0.44))
-            context.stroke(orbit.applying(CGAffineTransform(translationX: -w / 2, y: -h / 2)
-                .concatenating(CGAffineTransform(rotationAngle: -0.35))
-                .concatenating(CGAffineTransform(translationX: w / 2, y: h / 2))),
-                           with: .color(Palette.orbit), lineWidth: 1)
-            context.fill(Path(ellipseIn: CGRect(x: w * 0.86, y: h * 0.26, width: 6, height: 6)), with: .color(Palette.orbit))
-        }
-        .accessibilityHidden(true)
-    }
-}
-
-private struct StatTile: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(value).font(.title2.weight(.semibold).monospacedDigit())
-            Text(title).font(.footnote).foregroundStyle(Palette.reportMuted)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Palette.reportSurface, in: RoundedRectangle(cornerRadius: 16))
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// One flagged moment: when, which category, the words (Whisper's once it re-read them), and the
-/// user's accurate/wrong mark. A wrong mark offers to stop flagging its harsh words.
-private struct MomentCard: View {
-    let moment: SessionRecap.Moment
-    let model: Pass1Model
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Text(clockText(moment.start)).font(.caption.monospacedDigit()).foregroundStyle(Palette.reportMuted)
-                ForEach(moment.categories, id: \.self) { category in
-                    chip(model.copy(category == .register ? .recapRegister : .recapWords), cued: moment.cued)
-                }
-                if !moment.cued { chip(model.copy(.recapNotCued), cued: false) }
-                Spacer(minLength: 0)
-            }
-            HStack(alignment: .top, spacing: 12) {
-                Capsule().fill(moment.cued ? Palette.amber : Palette.reportMuted.opacity(0.4)).frame(width: 4)
-                Text("“\(moment.quote)”").font(.title3.weight(.medium))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            Group {
-                if !moment.cued {
-                    Text(model.copy(.recapOnlyWhisper))
-                } else if moment.heardDifferently {
-                    Text("\(model.copy(.cueFirstHeard)): “\(moment.apple)”")
-                    Text(model.copy(.recapDisagree))
-                } else if moment.whisper != nil {
-                    Label(model.copy(.cueCheckedAgain), systemImage: "checkmark.seal")
-                }
-            }
-            .font(.footnote)
-            .foregroundStyle(Palette.reportMuted)
-            .fixedSize(horizontal: false, vertical: true)
-            if moment.cued {
-                HStack(spacing: 8) {
-                    verdictButton(.accurate, title: model.copy(.recapAccurate), icon: "hand.thumbsup")
-                    verdictButton(.inaccurate, title: model.copy(.recapInaccurate), icon: "hand.thumbsdown")
-                }
-            }
-            if moment.verdict == .inaccurate {
-                ForEach(moment.harshWords(PersonalWords(added: model.words.added)), id: \.self) { word in
-                    if model.isMuted(word) {
-                        Label("“\(word)” · \(model.copy(.recapMuted))", systemImage: "speaker.slash")
-                            .font(.subheadline)
-                            .foregroundStyle(Palette.reportMuted)
-                    } else {
-                        Button {
-                            model.mute(word)
-                        } label: {
-                            Label("\(model.copy(.recapMute)): “\(word)”", systemImage: "speaker.slash")
-                                .font(.subheadline.weight(.medium))
-                                .frame(minHeight: 44)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.reportSurface, in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    private func chip(_ text: String, cued: Bool) -> some View {
-        Text(text)
-            .font(.caption.weight(.medium))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background((cued ? Palette.amber : Palette.reportMuted).opacity(cued ? 0.3 : 0.12), in: Capsule())
-    }
-
-    private func verdictButton(_ verdict: SessionRecap.Verdict, title: String, icon: String) -> some View {
-        let selected = moment.verdict == verdict
-        return Button {
-            model.markMoment(moment, verdict)
-        } label: {
-            Label(title, systemImage: icon)
-                .font(.subheadline.weight(.medium))
-                .padding(.horizontal, 14)
-                .frame(minHeight: 44)
-                .background(selected ? (verdict == .accurate ? Palette.primary : Palette.amber) : Palette.reportMuted.opacity(0.1),
-                            in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
-/// Seconds as m:ss.
-func clockText(_ seconds: Double) -> String {
-    let total = max(0, Int(seconds.rounded()))
-    return String(format: "%d:%02d", total / 60, total % 60)
 }
 #endif
