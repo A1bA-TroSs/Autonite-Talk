@@ -56,6 +56,17 @@ public struct Utterance: Codable, Identifiable, Sendable, Equatable {
     public var attributionDelay: Double?
     /// Voice attribution only: cosine similarity of a slot-Me piece's voiceprint to the enrolment.
     public var voiceMatch: Double?
+    /// Whisper's second listen of this piece, once done (loop autunite-reach): its words, whether
+    /// they differ from Apple's beyond spacing and punctuation, and how many harsh words only one
+    /// of the two heard. The flag and counts survive `scripts/redact_report.py`; the words don't.
+    public var whisperText: String?
+    public var whisperDiffers: Bool?
+    public var whisperOnlyHarsh: Int?
+    public var appleOnlyHarsh: Int?
+    /// Whisper's reading didn't read as the same speech as Apple's (`SecondReading.resembles`), so
+    /// its words count for nothing here, the same guard the cue card and the recap use. Nil in
+    /// reports saved before this.
+    public var whisperSetAside: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -85,5 +96,21 @@ public struct Utterance: Codable, Identifiable, Sendable, Equatable {
         self.overlapped = overlapped
         self.attributionDelay = attributionDelay
         self.voiceMatch = voiceMatch
+    }
+
+    /// Records Whisper's second listen of this piece next to Apple's words.
+    ///
+    /// The lab counts Whisper's words the way the cue card and the recap use them. A reading that
+    /// doesn't read as the same speech keeps its text for the lab view but is set aside: it counts
+    /// no harsh words either way, so a phrase Whisper made up can't inflate the report. A harsh word
+    /// only Whisper heard also needs a sure read (`SecondReading.isSure`), as in the recap.
+    public mutating func recordSecondListen(_ whisper: String, sure: Bool = true, words: PersonalWords = PersonalWords()) {
+        let comparison = SecondReading.compare(apple: text, whisper: whisper, words: words)
+        let sameSpeech = SecondReading.resembles(apple: text, whisper: whisper)
+        whisperText = whisper
+        whisperDiffers = comparison.differs
+        whisperSetAside = !sameSpeech
+        whisperOnlyHarsh = sameSpeech && sure ? comparison.onlyWhisper.count : 0
+        appleOnlyHarsh = sameSpeech ? comparison.onlyApple.count : 0
     }
 }

@@ -143,6 +143,28 @@ struct FeasibilityView: View {
             LabeledContent("Accuracy when committed", value: percent(score.accuracyWhenCommitted))
             LabeledContent("Coverage", value: percent(score.coverage))
             LabeledContent("Other called Me", value: percent(score.otherAsUserRate))
+            // Rubric C1: what Whisper's second listen changed, next to Apple's words.
+            let second = SecondListenSummary(utterances: model.utterances)
+            if second.reRead > 0 {
+                LabeledContent("Whisper re-read", value: "\(second.reRead)")
+                LabeledContent("Whisper heard differently", value: "\(second.heardDifferently)")
+                LabeledContent("Harsh words only Whisper / only Apple heard", value: "\(second.onlyWhisperHarsh) / \(second.onlyAppleHarsh)")
+                LabeledContent("Set aside as unlike Apple's", value: "\(second.setAside)")
+            }
+            // Rubric C1: early cues, how long the voice gate held them, how far before the end of the
+            // sentence they landed, and the delay from the flagged word to its text and to the cue.
+            let early = EarlyCueSummary(records: model.earlyCues)
+            if early.cued + early.dropped > 0 {
+                LabeledContent("Early cues fired / dropped", value: "\(early.cued) / \(early.dropped)")
+                LabeledContent("Voice gate hold, median / max", value: "\(format(early.medianWait)) / \(format(early.maximumWait))")
+                LabeledContent("Fired before the line ended, median", value: format(early.medianLead))
+                LabeledContent("Word to its text (Apple), median", value: format(early.medianTextLag))
+                LabeledContent("Word to cue, median", value: format(early.medianWordToCue))
+                LabeledContent("Diarizer behind the mic, median", value: format(early.medianDiarizerLag))
+                ForEach(early.sortedDropReasons) { drop in
+                    LabeledContent("Dropped: \(drop.reason)", value: "\(drop.count)")
+                }
+            }
             TextField("Notes (room, distance, voices)", text: $model.report.notes, axis: .vertical)
             ShareLink(item: model.report.jsonString()) {
                 Label("Export report JSON", systemImage: "square.and.arrow.up")
@@ -160,7 +182,7 @@ struct FeasibilityView: View {
 }
 
 /// The single recording indicator: dot, label, level and elapsed time.
-private struct RecordingStrip: View {
+struct RecordingStrip: View {
     let startedAt: Date?
     let levelDB: Double
     let interrupted: Bool
@@ -207,6 +229,10 @@ private struct UtteranceRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(utterance.text)
+            if let whisper = utterance.whisperText, utterance.whisperDiffers == true {
+                Text(utterance.whisperSetAside == true ? "Whisper, set aside as unlike Apple's: \(whisper)" : "Whisper: \(whisper)")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             HStack {
                 Text(String(format: "%.1f–%.1f s · %.2f s late", utterance.start, utterance.end, utterance.latency))
                 if let level = utterance.meanLevelDB {

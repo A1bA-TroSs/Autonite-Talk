@@ -1,0 +1,16 @@
+{
+  "approved_at": "2026-11-01T14:48:50",
+  "hashes": {
+    "SPEC.md": "92b333fb1ec62c233b9060e47709ba71d02f1dd49bb50fad2965f2070410a0e8",
+    "PLAN.md": "e0aa69589c97f6087e385b1679b8fe45a08918a25af646ca12568d34627b4548",
+    "phases.json": "bb90a083a774fa614d297e9ad34f86484a571f48a6168cb3349e4d4c21feb308",
+    "codex-gpt-6-sol/AGENTS-additions.md": "e4bbc2e8a1c1ead5cb109babbccb9c3a29c9003c1820304c2ea1a4f3d5d1d2d2",
+    "codex-gpt-6-sol/kickoff.md": "694b60cd0b1fca98a74057b90b80fbc0c146f423fe9f06edb7d2e6907d3479e5",
+    "codex-gpt-6-sol/resume.md": "a40da768d45603b161484e9c637690b8552549169e011f0eded1cec047665549",
+    "codex-gpt-6-sol/review.md": "5242b2ef59c9f02c7f3a59e266e67b6edde033bd5a809b21a8559bfaad8c978e",
+    "codex-gpt-6-sol/schemas/phase-report.json": "1c8fccf389f3c87a8794f0c4d6783845fc04900f966df5e0db7ab17603bcc373",
+    "codex-gpt-6-sol/schemas/review.json": "2516eccf76cc9436085017180b72404dfb9d1c7545dfe6666ce6285ec224e997",
+    "AMENDMENTS.md": "be99ae35c49ae5b36e7ea509bc89c558ebdce105ec9d533c012dff7576935354"
+  },
+  "amended": "Danny approved M1-M5 on 2026-11-01; M6 is his request of 2026-11-01 14:48; M7 aligns AC13 with INTENTIONAL.md section 4"
+}

@@ -2,16 +2,24 @@ name: iOS build
 
 # Builds and tests on GitHub's macOS runners, which come with Xcode,
 # so no Mac needs a local Xcode install to compile the app.
+# Public repo on a standard runner: Actions minutes are free. To keep usage low anyway,
+# docs-only changes don't build, a newer push cancels the older run, and the .ipa is kept 3 days.
 on:
   push:
     branches: [main]
+    paths-ignore: ['**/*.md', 'docs/**', 'assets/**']
   pull_request:
+    paths-ignore: ['**/*.md', 'docs/**', 'assets/**']
   workflow_dispatch:
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
 
@@ -48,12 +56,111 @@ jobs:
           xcrun simctl boot "$udid"
           xcrun simctl bootstatus "$udid" -b
           xcrun simctl install "$udid" "$RUNNER_TEMP/Autonite-sim.app"
+          echo "installed, launching"
           bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
-          SIMCTL_CHILD_AUTONITE_SELFTEST=1 perl -e 'alarm 120; exec @ARGV' xcrun simctl launch --console "$udid" "$bundle_id" | tee selftest.log || true
+          # The first launch after a cold boot can print nothing at all (run 43753550790: no output in
+          # 120 s from the app code that passed in run 43752510565). Launch again only when the app never
+          # started; a self-test that started and failed is not retried.
+          for attempt in 1 2; do
+            SIMCTL_CHILD_AUTONITE_SELFTEST=1 perl -e 'alarm 150; exec @ARGV' xcrun simctl launch --console --terminate-running-process "$udid" "$bundle_id" | tee selftest.log || true
+            grep -qx "selftest started" selftest.log && break
+            echo "attempt $attempt: the app printed nothing"
+          done
           grep -qx "autonite selftest succeeded" selftest.log
+
+      # Rubric M9: Whisper tiny downloads into a temporary folder and reads speech made with `say`.
+      # The clips are synthesized here and copied into the app's tmp folder; no microphone audio.
+      - name: Whisper self-test
+        run: |
+          udid=$(xcrun simctl list devices booted -j | python3 -c 'import json,sys; print([d["udid"] for v in json.load(sys.stdin)["devices"].values() for d in v][0])')
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
+          clips="$(xcrun simctl get_app_container "$udid" "$bundle_id" data)/tmp/selftest-clips"
+          mkdir -p "$clips"
+          # A named standard voice: the runner's default voice can be one whose asset isn't installed,
+          # which writes an empty file (run 43752510565).
+          en_voices=$(say -v '?' | awk '$2 ~ /^en_(US|GB)$/ {print $1}')
+          en_voice=$(echo "$en_voices" | grep -x Samantha || echo "$en_voices" | head -1)
+          say -v "$en_voice" -o "$RUNNER_TEMP/en.aiff" "I will send you the report tomorrow morning."
+          afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/en.aiff" "$clips/en.wav"
+          say -v '?' | grep -i 'ko_KR' || true
+          # Yuna is the standard Korean voice; the novelty voices (Eddy, Flo…) need their full names.
+          korean_voice=$(say -v '?' | awk '$2 == "ko_KR" {print $1; exit}')
+          if [ -n "$korean_voice" ]; then
+            say -v "$korean_voice" -o "$RUNNER_TEMP/ko.aiff" "내일 아침에 보고서를 보내 드릴게요."
+            afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/ko.aiff" "$clips/ko.wav"
+          fi
+          for clip in "$clips"/*.wav; do
+            seconds=$(afinfo "$clip" | awk '/estimated duration/ {print $3}')
+            echo "$(basename "$clip"): ${seconds:-0} s"
+            # A listed voice whose asset isn't installed writes an empty file; that clip is left out.
+            if [ "$(echo "${seconds:-0} < 1" | bc)" = 1 ]; then
+              echo "$(basename "$clip") holds no speech; left out of the test."
+              rm "$clip"
+            fi
+          done
+          [ -f "$clips/en.wav" ] || { echo "The English clip holds no speech."; exit 1; }
+          [ -f "$clips/ko.wav" ] || echo "No usable Korean voice on this runner; the Korean read is skipped."
+          xcrun simctl terminate "$udid" "$bundle_id" || true
+          SIMCTL_CHILD_AUTONITE_SELFTEST=whisper perl -e 'alarm 420; exec @ARGV' xcrun simctl launch --console "$udid" "$bundle_id" | tee whisper-selftest.log || true
+          grep -qx "autonite whisper selftest succeeded" whisper-selftest.log
+
+      # Rubric M3 and M5: the profile keeps voiceprints only, and the user's slot is found by
+      # voiceprint in an unprimed diarizer. Two synthetic voices from `say`; no microphone audio.
+      - name: Voice self-test
+        run: |
+          udid=$(xcrun simctl list devices booted -j | python3 -c 'import json,sys; print([d["udid"] for v in json.load(sys.stdin)["devices"].values() for d in v][0])')
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
+          clips="$(xcrun simctl get_app_container "$udid" "$bundle_id" data)/tmp/selftest-voice"
+          mkdir -p "$clips"
+          # Two standard English voices; the novelty voices (Eddy, Flo…) have bracketed names and are skipped.
+          voices=$(say -v '?' | awk '$2 ~ /^en_(US|GB)$/ {print $1}')
+          me=$(echo "$voices" | grep -x Samantha || echo "$voices" | head -1)
+          other=$(echo "$voices" | grep -x Daniel || echo "$voices" | grep -vx "$me" | head -1)
+          echo "user voice: $me; other voice: $other"
+          speak() {
+            say -v "$1" -o "$RUNNER_TEMP/$2.aiff" "$3"
+            afconvert -f WAVE -d LEI16@16000 -c 1 "$RUNNER_TEMP/$2.aiff" "$clips/$2.wav"
+            echo "$2: $(afinfo "$clips/$2.wav" | awk '/estimated duration/ {print $3}') s"
+          }
+          speak "$me" me-enrol "Hello, this is my normal speaking voice. I am reading a few sentences so the app can learn how I sound. Tomorrow I will call the office about the report, and then I will meet a friend for lunch near the station."
+          speak "$other" turn1-other "Good morning. Did you finish the slides for the meeting this afternoon?"
+          speak "$me" turn2-me "Almost. I still need to add the numbers from last week, but they should be ready by noon."
+          speak "$other" turn3-other "Great. Please send them to me when they are done, so I can check them before the call."
+          speak "$me" turn4-me "Sure, I will send them right away and tell you if anything changes."
+          xcrun simctl terminate "$udid" "$bundle_id" || true
+          SIMCTL_CHILD_AUTONITE_SELFTEST=voice perl -e 'alarm 600; exec @ARGV' xcrun simctl launch --console "$udid" "$bundle_id" | tee voice-selftest.log || true
+          grep -qx "autonite voice selftest succeeded" voice-selftest.log
+
+      - name: Screenshots for design review
+        run: |
+          udid=$(xcrun simctl list devices booted -j | python3 -c 'import json,sys; print([d["udid"] for v in json.load(sys.stdin)["devices"].values() for d in v][0])')
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$RUNNER_TEMP/Autonite-sim.app/Info.plist")
+          xcrun simctl ui "$udid" appearance dark || true
+          mkdir -p screens
+          for screen in setup live cue learner muteoffer practice settings mydata recap; do
+            xcrun simctl terminate "$udid" "$bundle_id" || true
+            SIMCTL_CHILD_AUTONITE_SCREEN=$screen xcrun simctl launch "$udid" "$bundle_id"
+            sleep 6
+            xcrun simctl io "$udid" screenshot "screens/$screen.png"
+          done
+          # Also print small JPEGs into the log, for reviewers who can read logs but not artifacts.
+          for screen in setup live cue learner muteoffer practice settings mydata recap; do
+            sips -s format jpeg -s formatOptions 70 -Z 1000 "screens/$screen.png" --out "$RUNNER_TEMP/$screen.jpg" >/dev/null
+            echo "SCREEN-BEGIN $screen"
+            base64 -i "$RUNNER_TEMP/$screen.jpg" | fold -w 4000
+            echo "SCREEN-END $screen"
+          done
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screens
+          path: screens/
+          retention-days: 3
 
       - name: Upload device build
         uses: actions/upload-artifact@v4
         with:
           name: Autonite-unsigned-ipa
           path: ${{ runner.temp }}/Autonite.ipa
+          retention-days: 3

@@ -37,7 +37,21 @@ final class FeasibilityModel {
     var isEnrolling = false
     /// The enrolment clip, in memory only for this app run. Never written to disk.
     private var enrollment: (samples: [Float], sampleRate: Double)?
-    var isEnrolled: Bool { enrollment != nil }
+    var isEnrolled: Bool { enrollment != nil || profile != nil }
+    /// Pass 1: the saved voice profile. When set, sessions enrol from it instead of the in-memory clip.
+    var profile: VoiceProfile?
+    /// Pass 1: called with each attributed piece of a voice session, in order.
+    var onVoiceUtterance: ((Utterance) -> Void)?
+    /// Pass 1 fast path: settings to read in-progress text with, and where an early cue goes.
+    /// Nil settings turn the fast path off (Lab sessions).
+    var earlySettings: CategorySettings?
+    var onEarlyCue: ((Utterance) -> Void)?
+    private var early = EarlyReader()
+    /// A mismatch in in-progress text waiting for the diarizer to vouch for its words.
+    @ObservationIgnored private var earlyHit: EarlyCueGate.Hit?
+    /// This session's early-cue decisions, for the latency evidence in the report.
+    private(set) var earlyCues: [EarlyCueRecord] = []
+    @ObservationIgnored private var pauseTask: Task<Void, Never>?
     /// Voice attribution is used when the model is loaded and a voice is enrolled; otherwise level.
     var method: AttributionMethod { voiceStatus == .ready && isEnrolled ? .voice : .level }
     private(set) var sessionMethod: AttributionMethod = .level
@@ -45,6 +59,12 @@ final class FeasibilityModel {
     private var voiceFeed: AsyncStream<([Float], Double)>.Continuation?
     private var voiceFeedTask: Task<Void, Never>?
     private var resolveTask: Task<Void, Never>?
+    /// Background voice check of the last few seconds, kept fresh so an early cue doesn't wait
+    /// for a voiceprint to be computed when the harsh word arrives.
+    private var verifyTask: Task<Void, Never>?
+    /// Whether the last few seconds passed the voice check, for the live readout. Nil before any check.
+    private(set) var liveVoiceVerified: Bool?
+    @ObservationIgnored private var recentCheck: EarlyCueGate.Check?
     private var pending: [PendingLine] = []
 
     /// A final transcript line waiting for the diarizer to catch up with its end time.
@@ -62,6 +82,36 @@ final class FeasibilityModel {
     private var interruptions = 0
     private var failures: [String] = []
     private let haptics = HapticProbe()
+
+    // Whisper's second listen (loop autunite-reach). Apple stays the live path; Whisper re-reads
+    // pieces the gate gave to the user, off the main actor, and never decides a cue.
+    enum WhisperStatus: Equatable {
+        case off
+        case downloading(Double)
+        case preparing
+        case ready
+        case failed(String)
+    }
+    let whisper = WhisperReader()
+    var whisperStatus: WhisperStatus = .off
+    /// Re-read the user's pieces with Whisper in Pass 1 sessions; set from the user's setting.
+    var whisperEnabled = false
+    /// Called with each piece Whisper re-read and Whisper's words, for the current session only.
+    var onSecondListen: ((Utterance, SecondReading.Heard) -> Void)?
+    /// Pieces waiting for Whisper, including the one being read.
+    private(set) var whisperPending = 0
+    private struct ReRead: Sendable {
+        let session: UUID
+        let utterance: Utterance
+        let samples: [Float]
+        let language: SpeechLanguage
+    }
+    private var reReads = ReReadQueue<ReRead>(capacity: 8)
+    @ObservationIgnored private var reReadTask: Task<Void, Never>?
+    private var session = UUID()
+    /// The settings of the running Pass 1 session, kept through `stop()` so its last pieces are
+    /// still re-read after the early path is switched off.
+    private var secondListenSettings: CategorySettings?
 
     init() {
         report = FeasibilityReport(
@@ -96,16 +146,33 @@ final class FeasibilityModel {
         lastError = nil
         utterances = []
         volatileText = ""
+        early = EarlyReader()
+        earlyHit = nil
+        earlyCues = []
+        // A new session: pieces still waiting from the last one are dropped, and a late result of
+        // the last one is ignored.
+        session = UUID()
+        reReads.removeAll()
+        updateWhisperPending()
+        secondListenSettings = earlySettings
         interruptions = 0
         failures = []
         pending = []
         sessionMethod = method
         let engine = LiveTranscriptionEngine()
         self.engine = engine
-        if sessionMethod == .voice, let enrollment {
+        if sessionMethod == .voice {
             do {
-                if try voice.beginSession(enrollment: enrollment.samples, sampleRate: enrollment.sampleRate) == nil {
-                    failures.append("Enrolment found no speech; using level attribution")
+                let listening: Bool
+                if let profile {
+                    listening = try voice.enroll(profile)
+                } else if let enrollment {
+                    listening = try voice.beginSession(enrollment: enrollment.samples, sampleRate: enrollment.sampleRate)
+                } else {
+                    listening = false
+                }
+                if !listening {
+                    failures.append("No voiceprint to look for; using level attribution")
                     sessionMethod = .level
                 }
             } catch {
@@ -121,6 +188,19 @@ final class FeasibilityModel {
             voiceFeedTask = Task.detached {
                 for await (samples, rate) in stream {
                     try? voice.feed(samples, sampleRate: rate)
+                }
+            }
+            recentCheck = nil
+            liveVoiceVerified = nil
+            verifyTask = Task.detached { [weak self] in
+                while !Task.isCancelled {
+                    let snapshot = voice.snapshot()
+                    if let check = Self.checkRecent(voice, snapshot) {
+                        await self?.storeRecentCheck(window: check.window, match: check.match, slot: snapshot.userSlot)
+                    } else {
+                        await self?.clearRecentCheck()
+                    }
+                    try? await Task.sleep(for: .milliseconds(250))
                 }
             }
             resolveTask = Task { [weak self] in
@@ -139,6 +219,8 @@ final class FeasibilityModel {
             try await engine.start(language: language)
             startedAt = Date()
             state = .recording
+            // The phone sits screen-up through the conversation; it must not lock and stop the capture.
+            UIApplication.shared.isIdleTimerDisabled = true
         } catch {
             lastError = error.localizedDescription
             failures.append(error.localizedDescription)
@@ -161,6 +243,8 @@ final class FeasibilityModel {
         if sessionMethod == .voice {
             resolveTask?.cancel()
             resolveTask = nil
+            verifyTask?.cancel()
+            verifyTask = nil
             voiceFeed?.finish()
             voiceFeed = nil
             await voiceFeedTask?.value
@@ -179,11 +263,14 @@ final class FeasibilityModel {
                 utterances: utterances,
                 interruptions: interruptions,
                 failures: failures,
-                attributionMethod: sessionMethod
+                attributionMethod: sessionMethod,
+                earlyCues: earlyCues
             ))
         }
+        earlyHit = nil
         volatileText = ""
         state = .idle
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     private func handle(_ event: EngineEvent) {
@@ -192,8 +279,23 @@ final class FeasibilityModel {
             levelDB = db
         case .volatile(let text):
             volatileText = text
+            readEarly(text)
+            // No new words for a moment: read the piece so far as a finished clause.
+            pauseTask?.cancel()
+            pauseTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(EarlyReader.pauseSeconds))
+                guard !Task.isCancelled, let self, self.volatileText == text else { return }
+                self.readEarly(text, closed: true)
+            }
         case .final(let text, let start, let end, let latency, let words):
             volatileText = ""
+            pauseTask?.cancel()
+            if let hit = earlyHit {
+                earlyHit = nil
+                recordEarly(hit, cued: false, reason: "the line ended first", heardUntil: voice.snapshot().heardUntil)
+            }
+            for i in earlyCues.indices where earlyCues[i].lineEnd == nil { earlyCues[i].place(lineEnd: end, words: words) }
+            early.lineFinished()
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             if sessionMethod == .voice {
                 pending.append(PendingLine(words: words, start: start, end: end, text: text, latency: latency, arrived: Date()))
@@ -272,6 +374,96 @@ final class FeasibilityModel {
         }
     }
 
+    /// Cues on in-progress text as soon as it holds a settled mismatch and the diarizer vouches
+    /// for the words (`EarlyCueGate`): it has heard up to when they appeared, only the user's slot
+    /// spoke there, and the background check on that slot matched the enrolled voice. Until then
+    /// the hit waits for the next update or check; the final line still goes through the full gate.
+    private func readEarly(_ text: String, closed: Bool = false) {
+        guard sessionMethod == .voice, let settings = earlySettings else { return }
+        guard early.hasNewMismatch(text, language: language, settings: settings, closed: closed) else {
+            // The recogniser revised the words away: nothing is waiting any more.
+            earlyHit = nil
+            return
+        }
+        let heardAt = engine?.capturedSeconds ?? 0
+        let hits = EarlyReader.hits(in: text, language: language, settings: settings, closed: closed)
+        if earlyHit == nil {
+            earlyHit = EarlyCueGate.Hit(text: text, closed: closed, hits: hits, heardAt: heardAt, since: ProcessInfo.processInfo.systemUptime)
+        } else {
+            earlyHit?.update(text: text, closed: closed, hits: hits, heardAt: heardAt)
+        }
+        decideEarly()
+    }
+
+    /// Cues, keeps waiting or drops the waiting hit, on each in-progress update and voice check.
+    private func decideEarly() {
+        guard let hit = earlyHit, let settings = earlySettings else { return }
+        let snapshot = voice.snapshot()
+        let verdict = EarlyCueGate.judge(hit, check: recentCheck, turns: snapshot.turns, userSlot: snapshot.userSlot,
+                                         heardUntil: snapshot.heardUntil, now: ProcessInfo.processInfo.systemUptime)
+        switch verdict {
+        case .wait:
+            return
+        case .drop(let reason):
+            // These words are never cued early; the final line decides with word times.
+            earlyHit = nil
+            early.markCued(hit.text, language: language, settings: settings, closed: hit.closed)
+            recordEarly(hit, cued: false, reason: reason, heardUntil: snapshot.heardUntil)
+        case .cue:
+            guard let check = recentCheck else { return }
+            earlyHit = nil
+            early.markCued(hit.text, language: language, settings: settings, closed: hit.closed)
+            recordEarly(hit, cued: true, reason: nil, heardUntil: snapshot.heardUntil)
+            onEarlyCue?(Utterance(
+                start: check.window.lowerBound, end: check.window.upperBound, text: Self.recentPiece(hit.text), latency: 0, meanLevelDB: nil,
+                predicted: .user, predictionConfidence: 1, voiceSlot: check.slot, overlapped: false,
+                voiceMatch: check.match
+            ))
+        }
+    }
+
+    private func recordEarly(_ hit: EarlyCueGate.Hit, cued: Bool, reason: String?, heardUntil: Double) {
+        let decidedAt = engine?.capturedSeconds ?? hit.heardAt
+        earlyCues.append(EarlyCueRecord(heardAt: hit.firstHeardAt, decidedAt: decidedAt, cued: cued, reason: reason,
+                                        heardLetters: EarlyCueRecord.letters(in: hit.firstText),
+                                        diarizerLag: max(0, decidedAt - heardUntil)))
+    }
+
+    /// The voice check behind an early cue. The user's slot alone for 1.5 s and the normal
+    /// threshold; or, when the diarizer moved some of the user's speech to another slot, any
+    /// non-overlapping speech that clears the strict threshold. Returns only passing checks.
+    nonisolated static func checkRecent(_ voice: VoiceDiarizer, _ snapshot: VoiceDiarizer.Snapshot) -> (window: ClosedRange<Double>, match: Double)? {
+        if let window = VoiceVerifier.recentUserWindow(turns: snapshot.turns, userSlot: snapshot.userSlot),
+           let match = voice.voiceMatch(start: window.lowerBound, end: window.upperBound),
+           match >= VoiceVerifier.threshold {
+            return (window, match)
+        }
+        if snapshot.userSlot != nil,
+           let window = VoiceVerifier.recentSpeechWindow(turns: snapshot.turns),
+           let match = voice.voiceMatch(start: window.lowerBound, end: window.upperBound),
+           match >= VoiceVerifier.strictThreshold {
+            return (window, match)
+        }
+        return nil
+    }
+
+    /// The last few words of in-progress text: the piece the cue is about, not the whole long sentence.
+    nonisolated static func recentPiece(_ text: String, words: Int = 8) -> String {
+        text.split(separator: " ").suffix(words).joined(separator: " ")
+    }
+
+    private func storeRecentCheck(window: ClosedRange<Double>, match: Double, slot: Int?) {
+        recentCheck = EarlyCueGate.Check(window: window, match: match, slot: slot)
+        if liveVoiceVerified != true { liveVoiceVerified = true }
+        decideEarly()
+    }
+
+    private func clearRecentCheck() {
+        recentCheck = nil
+        if liveVoiceVerified != false { liveVoiceVerified = false }
+        decideEarly()
+    }
+
     /// Splits each waiting line once the diarizer has final turns past its end, or all of them at the end of a session.
     private func resolvePending(final: Bool) {
         guard !pending.isEmpty else { return }
@@ -283,8 +475,16 @@ final class FeasibilityModel {
             let pieces = VoiceSplitter.smooth(VoiceSplitter.split(words: words, turns: snapshot.turns, userSlot: snapshot.userSlot))
             for split in pieces {
                 // Only slot-Me speech is checked against the enrolled voice; the rest can't be called Me anyway.
-                let match = split.label == .user ? voice.voiceMatch(start: split.start, end: split.end) : nil
-                let piece = VoiceVerifier.verify(split, similarity: match)
+                let evidence = VoiceVerifier.evidenceWindow(for: split, turns: snapshot.turns, userSlot: snapshot.userSlot)
+                // Slot-other speech is checked too: the diarizer's slots drift when the user's tone
+                // changes, and a clearly matching piece is reclaimed (strict threshold).
+                let checkable = split.label == .user || (split.label == .other && !split.overlapped && snapshot.userSlot != nil)
+                let match = checkable ? voice.voiceMatch(start: evidence.lowerBound, end: evidence.upperBound) : nil
+                let piece = VoiceVerifier.reclaim(VoiceVerifier.verify(split, similarity: match, evidence: evidence), similarity: match, evidence: evidence)
+                // Clearly-you speech from today joins the session's voice prints.
+                if piece.label == .user, let match, match >= VoiceVerifier.strictThreshold, piece.duration >= 2 {
+                    voice.adapt(start: piece.start, end: piece.end)
+                }
                 utterances.append(Utterance(
                     start: piece.start, end: piece.end, text: piece.text, latency: line.latency,
                     meanLevelDB: engine?.levels.meanDB(from: piece.start, to: piece.end),
@@ -292,8 +492,134 @@ final class FeasibilityModel {
                     voiceSlot: piece.slot, overlapped: piece.overlapped, attributionDelay: delay,
                     voiceMatch: match
                 ))
+                if let latest = utterances.last {
+                    onVoiceUtterance?(latest)
+                    queueSecondListen(latest)
+                }
             }
         }
+    }
+
+    // MARK: Whisper second listen
+
+    /// Downloads (only when it isn't on the phone yet) and loads a Whisper model.
+    func prepareWhisper(_ model: WhisperReader.Model) async {
+        switch whisperStatus {
+        case .downloading, .preparing: return
+        default: break
+        }
+        if whisper.loaded == model {
+            whisperStatus = .ready
+            return
+        }
+        whisperStatus = .downloading(0)
+        // Loading replaces the model in use, so a read in progress finishes first.
+        endSecondListen()
+        await reReadTask?.value
+        do {
+            try await whisper.load(model, progress: { fraction in
+                Task { @MainActor in self.showDownload(fraction) }
+            }, preparing: {
+                Task { @MainActor in self.showPreparing() }
+            })
+            whisperStatus = .ready
+        } catch {
+            whisperStatus = .failed(error.localizedDescription)
+        }
+    }
+
+    private func showDownload(_ fraction: Double) {
+        if case .downloading = whisperStatus { whisperStatus = .downloading(fraction) }
+    }
+
+    private func showPreparing() {
+        if case .downloading = whisperStatus { whisperStatus = .preparing }
+    }
+
+    /// Stops using Whisper and frees its memory; the model stays on the phone.
+    func unloadWhisper() async {
+        endSecondListen()
+        await reReadTask?.value
+        await whisper.unload()
+        whisperStatus = .off
+    }
+
+    /// Stops using Whisper and deletes its models from the phone.
+    func deleteWhisper() async {
+        endSecondListen()
+        await reReadTask?.value
+        do {
+            try await whisper.deleteModels()
+            whisperStatus = .off
+        } catch {
+            whisperStatus = .failed(error.localizedDescription)
+        }
+    }
+
+    /// Drops the pieces still waiting, and ignores a read in progress, when the user moves on from
+    /// the last session's recap.
+    func endSecondListen() {
+        session = UUID()
+        reReads.removeAll()
+        updateWhisperPending()
+    }
+
+    /// Queues a piece for Whisper when it is the user's verified speech (`SecondReading.admits`),
+    /// with a copy of its audio. Reads run one at a time off the main actor; the cue path never
+    /// waits for them.
+    private func queueSecondListen(_ utterance: Utterance) {
+        guard whisperEnabled, let settings = secondListenSettings, whisper.loaded != nil, SecondReading.admits(utterance),
+              let samples = voice.audio(start: utterance.start - SecondReading.padding, end: utterance.end + SecondReading.padding)
+        else { return }
+        var cued = false
+        if case .read(_, true) = ReadingPipeline.evaluate(utterance, language: language, settings: settings) { cued = true }
+        reReads.push(ReRead(session: session, utterance: utterance, samples: samples, language: language), cued: cued)
+        updateWhisperPending()
+        guard reReadTask == nil else { return }
+        let whisper = self.whisper
+        reReadTask = Task { [weak self] in
+            while let job = self?.nextReRead() {
+                let heard = try? await whisper.read(job.samples, language: job.language)
+                guard let self else { return }
+                if let heard, job.session == self.session {
+                    self.recordSecondListen(job.utterance.id, heard.text, sure: heard.sure)
+                    self.onSecondListen?(job.utterance, heard)
+                }
+            }
+            self?.reReadTask = nil
+            self?.updateWhisperPending()
+        }
+    }
+
+    /// Keeps Whisper's words beside Apple's in this session's pieces and, once the session has
+    /// ended, in its saved record, so the exported report shows both (rubric C1).
+    private func recordSecondListen(_ id: UUID, _ text: String, sure: Bool) {
+        let words = secondListenSettings?.words ?? PersonalWords()
+        if let i = utterances.firstIndex(where: { $0.id == id }) { utterances[i].recordSecondListen(text, sure: sure, words: words) }
+        if !isRecording, let last = report.sessions.indices.last,
+           let i = report.sessions[last].utterances.firstIndex(where: { $0.id == id }) {
+            report.sessions[last].utterances[i].recordSecondListen(text, sure: sure, words: words)
+        }
+    }
+
+    private func nextReRead() -> ReRead? {
+        let job = reReads.pop()
+        whisperPending = reReads.count + (job == nil ? 0 : 1)
+        return job
+    }
+
+    private func updateWhisperPending() {
+        whisperPending = reReads.count + (reReadTask == nil ? 0 : 1)
+    }
+
+    // MARK: Pass 1 voice profile
+
+    func makeProfile(reading: [Float], freeSpeech: [Float], sampleRate: Double) throws -> VoiceProfile {
+        try voice.makeProfile(reading: reading, freeSpeech: freeSpeech, sampleRate: sampleRate)
+    }
+
+    func similarity(of samples: [Float], sampleRate: Double, to voiceprint: [Float]) throws -> Double? {
+        try voice.similarity(of: samples, sampleRate: sampleRate, to: voiceprint)
     }
 
     // MARK: Haptics

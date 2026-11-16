@@ -1,0 +1,10 @@
+Stage 2 of Danny's idea pipeline: you own the phase plan for Autunite Pass 1. Read:
+- /Users/younseopark/projects/ontology-vault/Claude outputs/ideas/autunite/02-prompt/SPEC.md (the spec; binding)
+- ~/projects/agent-skills-drafts/master-prompt/templates/phases.json (the phase schema) and ~/projects/agent-skills-drafts/master-prompt/SKILL.md steps 3-4 (phase rules)
+- ~/projects/autonite-talk (the repo: CLAUDE.md, Package.swift, Sources/, Tests/, docs/PASS0_FEASIBILITY.md, xtool.yml; ~/projects/agent-skills/ios-xtool/scripts/xtkit.py for simtest)
+
+Return two fenced blocks and nothing else of substance:
+1. ```markdown PLAN.md content: a short plan (phases in order, what each delivers, why that order, risks).
+2. ```json phases.json content following the template schema exactly: top-level permission_mode "acceptEdits", review_effort "high", "preconditions" (each {what, check}: at least "Xcode.app installed and selected" with a failing shell check, and "Pass 0 decision gate recorded as go" checking for a file docs/evidence/PASS0_DECISION.md containing the line "decision: go"), "phases" (each: id, goal, constraints[], check, effort in low|medium|high|xhigh|max, max_retries 0-2, timeout_min, handoff, builder claude|codex, reviewer = the other), and "end_gate" items (each {what, why_not_automatic}) for everything only a device or Danny can judge (enrollment match at 40 cm and 1 m, haptic felt face-up while recording, warm Korean copy, usefulness of the register reading).
+
+Rules: every phase check is a shell command run from the repo root that exits non-zero on failure and could not pass before the phase's work exists (use swift test --filter with specific test names, xtool dev build, the xtkit simtest command with the sentinel; never true/echo). Each phase fits one fresh session. Map every AC1-AC11 to a phase. Assign builders by fit: you may take phases that are mostly planning-heavy or UI/design-heavy, Claude the core logic and tests; reviewer is always the other model. No network calls, no cloud, free components only. Label inferences [inference].

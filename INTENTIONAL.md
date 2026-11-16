@@ -12,7 +12,7 @@ This is a **conversation translator**: it preserves meaning while offering a dif
 
 - Begin with **face-to-face conversations on iPhone**. Ordinary phone-call capture is outside the first release.
 - Give **wording coaching during the conversation**. Produce the detailed summary, action list, and calendar candidates **after the session ends**.
-- Keep the phone **screen-up nearby**; use a **brief vibration** to call attention to a useful cue. The user checks the screen to read the reason and a suggested next sentence. No earbud delivery.
+- Keep the phone **screen-up nearby**; use a **short rising buzz** (about 0.6 s, "우우웅", not a single tap; Danny, 2026-11-01) to call attention to a useful cue. The user checks the screen to read the reason and a suggested next sentence. No earbud delivery.
 - Use a **Geiger-counter-like meter** as the visual metaphor. Like a counter picking up radiation, it reacts to **toxicness in the user's own speech**: word choice, sarcasm (비아냥), register (어체, 존댓말/반말), manner (말투) and voice tone. It does not measure another person's emotions.
 - **Nice by default, adjustable** (decided 31 October 2026). The meter reads toxicness against speaking nicely, tuned by the relationship (for example, a senior expects 존댓말). The user can switch a category off for a conversation where bluntness is the goal, such as delivering a firm no.
 - Keep the meter visually round, with tick marks only on the upper range the needle can reach. Keep one recording indicator above the meter. Reserve the mineral facets and orbit illustration for the report header; keep them out of the live meter.
