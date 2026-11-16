@@ -104,12 +104,16 @@ public struct SecondListenSummary: Equatable, Sendable {
     /// Harsh words only Whisper heard (shown in the recap, never cued) and only Apple heard.
     public let onlyWhisperHarsh: Int
     public let onlyAppleHarsh: Int
+    /// Readings that didn't read as the same speech as Apple's, so none of their words counted.
+    /// How often the guard fires on real talk is what tells whether its bar is right.
+    public let setAside: Int
 
-    public init(reRead: Int, heardDifferently: Int, onlyWhisperHarsh: Int, onlyAppleHarsh: Int) {
+    public init(reRead: Int, heardDifferently: Int, onlyWhisperHarsh: Int, onlyAppleHarsh: Int, setAside: Int = 0) {
         self.reRead = reRead
         self.heardDifferently = heardDifferently
         self.onlyWhisperHarsh = onlyWhisperHarsh
         self.onlyAppleHarsh = onlyAppleHarsh
+        self.setAside = setAside
     }
 
     public init(utterances: [Utterance]) {
@@ -118,7 +122,8 @@ public struct SecondListenSummary: Equatable, Sendable {
             reRead: read.count,
             heardDifferently: read.filter { $0.whisperDiffers == true }.count,
             onlyWhisperHarsh: read.reduce(0) { $0 + ($1.whisperOnlyHarsh ?? 0) },
-            onlyAppleHarsh: read.reduce(0) { $0 + ($1.appleOnlyHarsh ?? 0) }
+            onlyAppleHarsh: read.reduce(0) { $0 + ($1.appleOnlyHarsh ?? 0) },
+            setAside: read.filter { $0.whisperSetAside == true }.count
         )
     }
 }

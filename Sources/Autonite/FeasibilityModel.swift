@@ -582,7 +582,7 @@ final class FeasibilityModel {
                 let heard = try? await whisper.read(job.samples, language: job.language)
                 guard let self else { return }
                 if let heard, job.session == self.session {
-                    self.recordSecondListen(job.utterance.id, heard.text)
+                    self.recordSecondListen(job.utterance.id, heard.text, sure: heard.sure)
                     self.onSecondListen?(job.utterance, heard)
                 }
             }
@@ -593,12 +593,12 @@ final class FeasibilityModel {
 
     /// Keeps Whisper's words beside Apple's in this session's pieces and, once the session has
     /// ended, in its saved record, so the exported report shows both (rubric C1).
-    private func recordSecondListen(_ id: UUID, _ text: String) {
+    private func recordSecondListen(_ id: UUID, _ text: String, sure: Bool) {
         let words = secondListenSettings?.words ?? PersonalWords()
-        if let i = utterances.firstIndex(where: { $0.id == id }) { utterances[i].recordSecondListen(text, words: words) }
+        if let i = utterances.firstIndex(where: { $0.id == id }) { utterances[i].recordSecondListen(text, sure: sure, words: words) }
         if !isRecording, let last = report.sessions.indices.last,
            let i = report.sessions[last].utterances.firstIndex(where: { $0.id == id }) {
-            report.sessions[last].utterances[i].recordSecondListen(text, words: words)
+            report.sessions[last].utterances[i].recordSecondListen(text, sure: sure, words: words)
         }
     }
 

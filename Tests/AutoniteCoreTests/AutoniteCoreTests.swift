@@ -986,6 +986,25 @@ private struct LegacyVoiceProfile: Encodable {
     #expect(redacted.secondListen == record.secondListen)
 }
 
+@Test func theLabCountsWhisperWordsOnlyWhenTheyReadAsTheSameSpeechAndAreSure() {
+    // Whisper making up a threat over a filler phrase: the lab keeps the text to look at, counts nothing.
+    var madeUp = Utterance(start: 0, end: 2, text: "음 그러니까", latency: 0.3, meanLevelDB: nil)
+    madeUp.recordSecondListen("죽여버릴 거야 씨발")
+    #expect(madeUp.whisperText == "죽여버릴 거야 씨발")
+    #expect(madeUp.whisperSetAside == true)
+    #expect(madeUp.whisperOnlyHarsh == 0 && madeUp.appleOnlyHarsh == 0)
+    // The same speech read without a sure read: no harsh word only Whisper heard, as in the recap.
+    var unsure = Utterance(start: 3, end: 5, text: "아 그건 좀 한 심하다", latency: 0.3, meanLevelDB: nil)
+    unsure.recordSecondListen("아, 그건 좀 한심하다.", sure: false)
+    #expect(unsure.whisperSetAside == false && unsure.whisperOnlyHarsh == 0)
+    // A sure reading of the same speech still counts.
+    var sure = Utterance(start: 6, end: 8, text: "아 그건 좀 한 심하다", latency: 0.3, meanLevelDB: nil)
+    sure.recordSecondListen("아, 그건 좀 한심하다.")
+    #expect(sure.whisperSetAside == false && sure.whisperOnlyHarsh == 1)
+    #expect(SecondListenSummary(utterances: [madeUp, unsure, sure])
+        == SecondListenSummary(reRead: 3, heardDifferently: 1, onlyWhisperHarsh: 1, onlyAppleHarsh: 0, setAside: 1))
+}
+
 // MARK: Rubric M5: an early cue only on words the diarizer has heard as the user's
 
 private func hit(heardAt: Double, since: Double = 100) -> EarlyCueGate.Hit {

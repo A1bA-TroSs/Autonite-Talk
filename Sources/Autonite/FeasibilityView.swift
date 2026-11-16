@@ -149,6 +149,7 @@ struct FeasibilityView: View {
                 LabeledContent("Whisper re-read", value: "\(second.reRead)")
                 LabeledContent("Whisper heard differently", value: "\(second.heardDifferently)")
                 LabeledContent("Harsh words only Whisper / only Apple heard", value: "\(second.onlyWhisperHarsh) / \(second.onlyAppleHarsh)")
+                LabeledContent("Set aside as unlike Apple's", value: "\(second.setAside)")
             }
             // Rubric C1: early cues, how long the voice gate held them, how far before the end of the
             // sentence they landed, and the delay from the flagged word to its text and to the cue.
@@ -229,7 +230,8 @@ private struct UtteranceRow: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(utterance.text)
             if let whisper = utterance.whisperText, utterance.whisperDiffers == true {
-                Text("Whisper: \(whisper)").font(.footnote).foregroundStyle(.secondary)
+                Text(utterance.whisperSetAside == true ? "Whisper, set aside as unlike Apple's: \(whisper)" : "Whisper: \(whisper)")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
             HStack {
                 Text(String(format: "%.1f–%.1f s · %.2f s late", utterance.start, utterance.end, utterance.latency))
